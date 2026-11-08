@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+
+<!-- PWA / Mobile App Settings -->
+<meta name="theme-color" content="#111111">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<title>LED Matrix Editor</title>
+<style>
+  :root {
+    --bg-main: #111; --bg-panel: #1a1a1a; --bg-control: #2a2a2a; --bg-darker: #222; --bg-tool: #333;
+    --text-main: #eee; --text-secondary: #999; --text-code: #0f0;
+    --border-color: #444; --border-control: #555;
+    --color-accent: lime; --color-warning: #f55; --color-attention: #ff9d00; --color-delete: #ff4d4d;
+    --color-r: #ff4d4d; --color-g: #4dff4d; --color-b: #4d4dff;
+  }
+  body { font-family: monospace; background-color: var(--bg-main); color: var(--text-main); margin: 0; padding: 1em; user-select: none; touch-action: manipulation; overscroll-behavior-y: contain; }
+  h3 { border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; margin-top: 2em; }
+  *:focus-visible { outline: 2px solid var(--color-accent) !important; outline-offset: 2px; }
+  
+  .main-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1em; margin-bottom: 1em; }
+  .main-header h1 { margin: 0; }
+  .support-link { display: inline-block; padding: 0.5em 1em; background-color: var(--color-accent); color: #000; text-decoration: none; border-radius: 6px; font-weight: bold; transition: transform 0.1s ease-in-out; }
+  .support-link:hover { transform: scale(1.05); }
+
+  #top-controls { display: flex; flex-wrap: wrap; gap: 1em; background-color: var(--bg-panel); border-radius: 8px; padding: 1em; margin-bottom: 2em; }
+  .control-group { flex: 1 1 250px; border: 1px solid var(--border-color); border-radius: 6px; padding: 0.8em; display: flex; flex-direction: column; gap: 0.8em; }
+  .control-group legend { font-weight: bold; padding: 0 0.3em; margin-left: -0.3em; }
+  .control-row { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 1em; }
+  .control-item { display: flex; align-items: center; gap: 0.5em; flex-grow: 1; flex-basis: 120px; }
+  .control-item label { white-space: nowrap; }
+  .control-item input[type="number"], .control-item select { width: 65px; padding: 0.4em; background-color: var(--bg-control); color: var(--text-main); border: 1px solid var(--border-control); border-radius: 4px; }
+  .control-row button { padding: 0.5em 1em; background-color: var(--bg-control); color: var(--text-main); border: 1px solid var(--border-control); border-radius: 4px; cursor: pointer; width: 100%; }
+  .control-row input[type="file"] { display: none; }
+
+  #widthInput.dirty, #heightInput.dirty { border-color: var(--color-attention); }
+  #applySizeBtn { padding: 0.4em 0.8em; flex-grow: 1; background-color: var(--color-attention); color: #000; font-weight: bold; border: none; display: none; }
+  #applySizeBtn.visible { display: inline-flex; justify-content: center; }
+
+  #palette-wrapper { margin: 1em 0; }
+  #palette { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .divider { border-left: 1px solid var(--border-color); margin: 0 0.5em; height: 24px; }
+  .tool-btn, .action-btn { display: inline-flex; justify-content: center; align-items: center; width: 36px; height: 36px; background-color: var(--bg-tool); color: var(--text-main); border: 2px solid transparent; border-radius: 4px; cursor: pointer; transition: background-color 0.2s, border-color 0.2s; }
+  .tool-btn:hover, .action-btn:hover { background-color: var(--border-control); }
+  .tool-btn.selected, .tool-btn.active { border-color: var(--color-accent); }
+  .tool-btn svg, .action-btn svg { width: 20px; height: 20px; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #palette-swatches button { width: 32px; height: 32px; padding: 0; border-radius: 4px; border: 1px solid var(--border-control); cursor: pointer; box-sizing: border-box; position: relative; }
+  #palette-swatches button.selected { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .delete-swatch { position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; line-height: 16px; text-align: center; background: var(--color-delete); color: white; border-radius: 50%; font-size: 12px; font-weight: bold; cursor: pointer; display: none; }
+  #palette-swatches.edit-mode .delete-swatch { display: block; }
+  
+  #main-workspace { display: grid; justify-content: center; gap: 2.5em; margin-top: 2em; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .workspace-column { text-align: center; width: 100%; }
+  
+  /* Scrollable containers for mobile 32x32 support */
+  #matrix-container, #preview-container { 
+      position: relative; 
+      margin: 1.5em auto; 
+      width: 100%;
+      max-width: 100%;
+      overflow: auto; 
+      display: flex;
+      justify-content: center;
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-accent) var(--bg-control);
+  }
+  
+  /* touch-action: none prevents scrolling while drawing on mobile */
+  #matrix, #preview { display: grid; grid-gap: 2px; cursor: pointer; touch-action: none; margin: auto; }
+  
+  #matrix.pipette-active { cursor: crosshair; }
+  .pixel { width: 24px; height: 24px; background-color: var(--onion-skin-color, #000); border: 1px solid var(--bg-tool); box-sizing: border-box; position: relative; will-change: background-color; }
+  .pixel::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--current-pixel-color, #000); z-index: 1; will-change: background-color; }
+  .pixel.placeholder { border-color: transparent !important; background-color: transparent !important; }
+  .pixel.placeholder::before { display: none; }
+  
+  .timeline-header { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 1em; }
+  .timeline-header h3 { margin: 0; }
+  .timeline-controls-group { display: flex; gap: 0.5em; }
+  .action-btn.text-btn { width: auto; padding: 0.3em 0.8em; font-size: 0.9em; }
+  .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #frameTimeline { display: flex; flex-wrap: wrap; gap: 1em; justify-content: center; margin-top: 1.5em; padding-bottom: 1em; }
+  .frame-container { display: flex; flex-direction: column; align-items: center; }
+  .frame-thumb { width: 60px; height: 60px; display: grid; grid-template-columns: repeat(var(--w), 1fr); border: 1px solid var(--border-color); cursor: pointer; position: relative; user-select: none; }
+  .frame-thumb.active { outline: 3px solid var(--color-accent); }
+  .frame-thumb div { width: 100%; height: 100%; }
+  .frame-actions { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; }
+  .frame-onion-btn { background: rgba(50,50,50,0.7); border: 1px solid #666; color: #ccc; cursor: pointer; width: 18px; height: 18px; line-height: 16px; text-align: center; font-size: 12px; border-radius: 3px; padding: 0; }
+  .frame-onion-btn.active { background: var(--color-accent); color: black; border-color: #fff; }
+  .frame-fps { margin-top: 4px; padding: 2px 6px; background: var(--bg-darker); border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px; color: var(--text-main); cursor: pointer; font-weight: bold; min-width: 40px; text-align: center; transition: background-color 0.2s; }
+  .frame-fps:hover { background-color: var(--bg-control); }
+  .frame-fps-input { width: 50px; font-size: 12px; text-align: center; background-color: #000; color: var(--text-code); border: 1px solid var(--color-accent); border-radius: 4px; margin-top: 4px; padding: 2px; }
+  .frame-fps-input.warning { color: var(--color-warning); border-color: var(--color-warning); }
+
+  #codeSection { display: flex; flex-direction: column; align-items: center; gap: 0.5em; max-width: 95%; margin: 1em auto; }
+  #code-actions { display: flex; gap: 1em; width: 100%; align-items: center; flex-wrap: wrap; justify-content: center; }
+  #code-export-group button, #generateCodeBtn { background-color: var(--bg-tool); color: var(--text-main); border: none; padding: 0.5em 1em; cursor: pointer; border-radius: 4px; }
+  #exportCode { background: var(--bg-darker); padding: 1em; width: 90%; max-width: 100%; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin-top: 1em; min-height: 5em; }
+  #exportCode.placeholder { text-align: center; color: #666; }
+  #exportCode:not(.placeholder) { color: var(--text-code); }
+  #generateCodeBtn.attention { background-color: var(--color-attention); color: #000; }
+  #memory-estimate { text-align: center; font-size: 0.8em; color: var(--text-secondary); margin-top: 0.5em; }
+  
+  .modal-overlay { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); overflow: auto; align-items: center; justify-content: center; }
+  .modal-content { background: var(--bg-darker); margin: auto; padding: 20px; border: 1px solid var(--border-color); width: 80%; max-width: 600px; border-radius: 8px; }
+  #mapModal .modal-content { width: auto; max-width: 95vw; }
+  #map-container { display: flex; gap: 2em; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+  #mapGrid { display: grid; grid-gap: 1px; border: 1px solid var(--border-control); background-color: #000; max-height: 60vh; overflow: auto; }
+  .map-pixel { width: 18px; height: 18px; background-color: var(--bg-tool); cursor: pointer; color: white; font-size: 10px; display: flex; justify-content: center; align-items: center; position: relative; }
+  .map-pixel:hover { background-color: var(--border-control); }
+  .map-pixel.mapped { background-color: #004d00; cursor: default; }
+  .map-pixel .unmap-btn { position: absolute; top:0; right:0; bottom:0; left:0; background:rgba(255, 77, 77, 0.7); color:white; font-weight:bold; cursor:pointer; display:none; align-items:center; justify-content:center; font-size:14px; }
+  .map-pixel.mapped:hover .unmap-btn { display: flex; }
+  
+  #colorPickerModal .modal-content { width: auto; max-width: 420px; }
+  .color-picker-body { display: flex; gap: 20px; }
+  .color-preview { width: 100px; height: 100px; border: 2px solid var(--border-control); border-radius: 8px; background-color: #000; flex-shrink: 0; }
+  .color-controls { flex-grow: 1; display: flex; flex-direction: column; gap: 10px; }
+  .color-channel { display: flex; align-items: center; gap: 10px; }
+  .color-channel label { font-weight: bold; width: 20px; color: var(--text-main); }
+  .color-channel input[type="range"] { flex-grow: 1; -webkit-appearance: none; appearance: none; height: 8px; background: var(--bg-control); border-radius: 4px; outline: none; }
+  .color-channel input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #ddd; cursor: pointer; }
+  .color-channel input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #ddd; cursor: pointer; border: none; }
+  #slider-r { --channel-color: var(--color-r); }
+  #slider-g { --channel-color: var(--color-g); }
+  #slider-b { --channel-color: var(--color-b); }
+  .color-channel input[type="range"]::-webkit-slider-thumb { background: var(--channel-color); }
+  .color-channel input[type="range"]::-moz-range-thumb { background: var(--channel-color); }
+  .color-channel input[type="number"] { width: 60px; text-align: center; }
+  .hex-input-group { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .hex-input-group label { font-weight: bold; }
+  #hexInput { flex-grow: 1; font-family: monospace; text-transform: uppercase; }
+  .modal-actions { text-align: right; margin-top: 20px; }
+  .modal-actions button { padding: 0.6em 1.2em; border-radius: 4px; border: none; cursor: pointer; }
+  .modal-actions button:first-of-type { margin-right: 0.8em; background-color: var(--bg-tool); color: var(--text-main); }
+  .modal-actions button:last-of-type { background-color: var(--color-accent); color: #000; font-weight: bold; }
+
+  #bluetoothStatusModal .progress-bar {
+      width: 100%;
+      height: 20px;
+      background-color: var(--bg-control);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      margin-top: 1em;
+      overflow: hidden;
+  }
+  #bluetoothStatusModal .progress-bar-inner {
+      height: 100%;
+      width: 0%;
+      background-color: var(--color-accent);
+      transition: width 0.2s ease-out;
+  }
+  #bluetoothStatusModal #bt-status-text {
+      margin-top: 0.5em;
+      min-height: 1.2em;
+      color: var(--text-secondary);
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute;visibility:hidden;">
+  <!-- Undo -->
+  <symbol id="icon-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+  <!-- Redo -->
+  <symbol id="icon-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></symbol>
+  <!-- Pencil -->
+  <symbol id="icon-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+  <!-- Fill -->
+  <symbol id="icon-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 11l-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11z"/><path d="M5 2l5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4z"/></symbol>
+  
+  <!-- Eraser (Solid Style - Adapted) -->
+  <symbol id="icon-eraser" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M5.50506 11.4096L6.03539 11.9399L5.50506 11.4096ZM3 14.9522H2.25H3ZM9.04776 21V21.75V21ZM11.4096 5.50506L10.8792 4.97473L11.4096 5.50506ZM17.9646 12.0601L12.0601 17.9646L13.1208 19.0253L19.0253 13.1208L17.9646 12.0601ZM6.03539 11.9399L11.9399 6.03539L10.8792 4.97473L4.97473 10.8792L6.03539 11.9399ZM6.03539 17.9646C5.18538 17.1146 4.60235 16.5293 4.22253 16.0315C3.85592 15.551 3.75 15.2411 3.75 14.9522H2.25C2.25 15.701 2.56159 16.3274 3.03 16.9414C3.48521 17.538 4.1547 18.2052 4.97473 19.0253L6.03539 17.9646ZM4.97473 10.8792C4.1547 11.6993 3.48521 12.3665 3.03 12.9631C2.56159 13.577 2.25 14.2035 2.25 14.9522H3.75C3.75 14.6633 3.85592 14.3535 4.22253 13.873C4.60235 13.3752 5.18538 12.7899 6.03539 11.9399L4.97473 10.8792ZM12.0601 17.9646C11.2101 18.8146 10.6248 19.3977 10.127 19.7775C9.64651 20.1441 9.33665 20.25 9.04776 20.25V21.75C9.79649 21.75 10.423 21.4384 11.0369 20.97C11.6335 20.5148 12.3008 19.8453 13.1208 19.0253L12.0601 17.9646ZM4.97473 19.0253C5.79476 19.8453 6.46201 20.5148 7.05863 20.97C7.67256 21.4384 8.29902 21.75 9.04776 21.75V20.25C8.75886 20.25 8.449 20.1441 7.9685 19.7775C7.47069 19.3977 6.88541 18.8146 6.03539 17.9646L4.97473 19.0253ZM17.9646 6.03539C18.8146 6.88541 19.3977 7.47069 19.7775 7.9685C20.1441 8.449 20.25 8.75886 20.25 9.04776H21.75C21.75 8.29902 21.4384 7.67256 20.97 7.05863C20.5148 6.46201 19.8453 5.79476 19.0253 4.97473L17.9646 6.03539ZM19.0253 13.1208C19.8453 12.3008 20.5148 11.6335 20.97 11.0369C21.4384 10.423 21.75 9.79649 21.75 9.04776H20.25C20.25 9.33665 20.1441 9.64651 19.7775 10.127C19.3977 10.6248 18.8146 11.2101 17.9646 12.0601L19.0253 13.1208ZM19.0253 4.97473C18.2052 4.1547 17.538 3.48521 16.9414 3.03C16.3274 2.56159 15.701 2.25 14.9522 2.25V3.75C15.2411 3.75 15.551 3.85592 16.0315 4.22253C16.5293 4.60235 17.1146 5.18538 17.9646 6.03539L19.0253 4.97473ZM11.9399 6.03539C12.7899 5.18538 13.3752 4.60235 13.873 4.22253C14.3535 3.85592 14.6633 3.75 14.9522 3.75V2.25C14.2035 2.25 13.577 2.56159 12.9631 3.03C12.3665 3.48521 11.6993 4.1547 10.8792 4.97473L11.9399 6.03539Z"/>
+    <path opacity="0.5" d="M13.2411 17.8444C13.534 18.1372 14.0089 18.1372 14.3018 17.8444C14.5946 17.5515 14.5946 17.0766 14.3018 16.7837L13.2411 17.8444ZM7.21637 9.69831C6.92347 9.40541 6.4486 9.40541 6.15571 9.69831C5.86281 9.9912 5.86281 10.4661 6.15571 10.759L7.21637 9.69831ZM14.3018 16.7837L7.21637 9.69831L6.15571 10.759L13.2411 17.8444L14.3018 16.7837Z"/>
+    <path opacity="0.5" d="M9 21H21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- Pipette (Solid Style - Adapted) -->
+  <symbol id="icon-pipette" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M10.5312 19.2911L10.0008 18.7608L10.5312 19.2911ZM11.333 6.84476L11.8633 6.31443L11.333 6.84476ZM10.2413 5.75308L9.71095 6.28341L9.71095 6.28341L10.2413 5.75308ZM12.4246 3.56973L12.955 3.0394L12.4246 3.56973ZM13.5163 4.6614L12.986 5.19173C13.1266 5.33239 13.3174 5.4114 13.5163 5.4114C13.7152 5.4114 13.906 5.33239 14.0466 5.19173L13.5163 4.6614ZM14.9719 3.20583L14.4416 2.6755L14.9719 3.20583ZM19.3386 10.4837L18.8083 9.95336C18.5154 10.2462 18.5154 10.7211 18.8083 11.014L19.3386 10.4837ZM20.4303 11.5754L19.8999 12.1057L20.4303 11.5754ZM4.70889 13.4688L4.17856 12.9385L4.70889 13.4688ZM2.45219 19.3645L2.98252 19.8948H2.98252L2.45219 19.3645ZM3.0809 18.7357L2.55057 18.2054H2.55057L3.0809 18.7357ZM4.63554 21.5478L5.16587 22.0781L4.63554 21.5478ZM5.26425 20.9191L4.73392 20.3888L5.26425 20.9191ZM3.77862 16.7467L3.03321 16.8295L3.03321 16.8295L3.77862 16.7467ZM3.72581 16.2714L4.47122 16.1885L4.47122 16.1885L3.72581 16.2714ZM7.25332 20.2214L7.17049 20.9668H7.1705L7.25332 20.2214ZM7.72863 20.2742L7.81145 19.5288H7.81145L7.72863 20.2742ZM5.51488 20.6781L6.00027 21.2499H6.00027L5.51488 20.6781ZM6.90709 20.1898L6.92895 19.4401H6.92894L6.90709 20.1898ZM3.88016 14.4259L3.21747 14.0747L3.21746 14.0747L3.88016 14.4259ZM3.67658 15.0063L2.93971 14.8665L2.93971 14.8665L3.67658 15.0063ZM3.32186 18.4851L2.75011 17.9997L2.75011 17.9997L3.32186 18.4851ZM3.81022 17.0929L4.5599 17.0711L4.5599 17.0711L3.81022 17.0929ZM9.57407 20.1198L9.92526 20.7825H9.92526L9.57407 20.1198ZM8.99371 20.3234L9.13345 21.0603H9.13345L8.99371 20.3234ZM14.5 15.3223L13.9697 14.792L14.5 15.3223ZM11.8633 6.31443L10.7716 5.22275L9.71095 6.28341L10.8026 7.37509L11.8633 6.31443ZM18.7772 13.2284L17.6856 12.1367L16.6249 13.1974L17.7166 14.2891L18.7772 13.2284ZM11.8943 4.10006L12.986 5.19173L14.0466 4.13107L12.955 3.0394L11.8943 4.10006ZM14.0466 5.19173L15.5022 3.73616L14.4416 2.6755L12.986 4.13107L14.0466 5.19173ZM20.2638 8.49779L18.8083 9.95336L19.8689 11.014L21.3245 9.55845L20.2638 8.49779ZM10.8026 7.37509L16.6249 13.1974L17.6856 12.1367L11.8633 6.31443L10.8026 7.37509ZM5.23922 13.9992L11.8633 7.37509L10.8026 6.31443L4.17856 12.9385L5.23922 13.9992ZM2.98252 19.8948L3.61123 19.2661L2.55057 18.2054L1.92186 18.8341L2.98252 19.8948ZM5.16587 22.0781L5.79458 21.4494L4.73392 20.3888L4.10521 21.0175L5.16587 22.0781ZM4.52404 16.6639L4.47122 16.1885L2.9804 16.3542L3.03321 16.8295L4.52404 16.6639ZM7.1705 20.9668L7.64581 21.0196L7.81145 19.5288L7.33614 19.476L7.1705 20.9668ZM5.79458 21.4494C5.92779 21.3162 5.96506 21.2798 6.00027 21.2499L5.02949 20.1064C4.93671 20.1852 4.84956 20.2731 4.73392 20.3888L5.79458 21.4494ZM7.33615 19.476C7.17359 19.4579 7.05059 19.4436 6.92895 19.4401L6.88523 20.9395C6.9314 20.9408 6.98329 20.946 7.17049 20.9668L7.33615 19.476ZM6.00027 21.2499C6.24677 21.0406 6.56202 20.93 6.88523 20.9395L6.92894 19.4401C6.23522 19.4199 5.55857 19.6572 5.02949 20.1064L6.00027 21.2499ZM1.92186 22.0781C2.81767 22.974 4.27006 22.974 5.16587 22.0781L4.10521 21.0175C3.79519 21.3275 3.29254 21.3275 2.98252 21.0175L1.92186 22.0781ZM4.17856 12.9385C3.75541 13.3616 3.42729 13.6788 3.21747 14.0747L4.54285 14.7771C4.62249 14.6269 4.75037 14.488 5.23922 13.9992L4.17856 12.9385ZM4.47122 16.1885C4.39488 15.5014 4.38176 15.3131 4.41345 15.146L2.93971 14.8665C2.85622 15.3068 2.91431 15.7594 2.9804 16.3542L4.47122 16.1885ZM3.21746 14.0747C3.08575 14.3233 2.99212 14.5902 2.93971 14.8665L4.41345 15.146C4.43786 15.0173 4.48149 14.8929 4.54285 14.7771L3.21746 14.0747ZM20.2638 3.73616C21.5787 5.05105 21.5787 7.1829 20.2638 8.49779L21.3245 9.55845C23.2252 7.65777 23.2252 4.57618 21.3245 2.6755L20.2638 3.73616ZM15.5022 3.73616C16.8171 2.42128 18.949 2.42128 20.2638 3.73616L21.3245 2.6755C19.4238 0.774832 16.3422 0.774832 14.4416 2.6755L15.5022 3.73616ZM19.8999 13.2284C19.5899 13.5384 19.0873 13.5384 18.7772 13.2284L17.7166 14.2891C18.6124 15.1849 20.0648 15.1849 20.9606 14.2891L19.8999 13.2284ZM3.61123 19.2661C3.72688 19.1504 3.81485 19.0633 3.8936 18.9705L2.75011 17.9997C2.72021 18.0349 2.68376 18.0722 2.55057 18.2054L3.61123 19.2661ZM3.03321 16.8295C3.05401 17.0167 3.05919 17.0686 3.06054 17.1148L4.5599 17.0711C4.55635 16.9494 4.5421 16.8264 4.52404 16.6639L3.03321 16.8295ZM3.8936 18.9705C4.34277 18.4414 4.58012 17.7648 4.5599 17.0711L3.06054 17.1148C3.06996 17.438 2.95937 17.7532 2.75011 17.9997L3.8936 18.9705ZM10.7716 4.10006C11.0816 3.79003 11.5843 3.79003 11.8943 4.10006L12.955 3.0394C12.0592 2.14359 10.6068 2.14359 9.71095 3.0394L10.7716 4.10006ZM2.98252 21.0175C2.67249 20.7075 2.67249 20.2048 2.98252 19.8948L1.92186 18.8341C1.02605 19.7299 1.02605 21.1823 1.92186 22.0781L2.98252 21.0175ZM10.7716 5.22275C10.4616 4.91273 10.4616 4.41008 10.7716 4.10006L9.71095 3.0394C8.81514 3.93521 8.81514 5.3876 9.71095 6.28341L10.7716 5.22275ZM20.9606 14.2891C21.8564 13.3932 21.8564 11.9408 20.9606 11.045L19.8999 12.1057C20.21 12.4157 20.21 12.9184 19.8999 13.2284L20.9606 14.2891ZM10.0008 18.7608C9.51199 19.2496 9.37315 19.3775 9.22287 19.4571L9.92526 20.7825C10.3212 20.5727 10.6384 20.2446 11.0615 19.8214L10.0008 18.7608ZM7.64581 21.0196C8.24057 21.0857 8.6932 21.1438 9.13345 21.0603L8.85397 19.5866C8.68687 19.6182 8.49856 19.6051 7.81145 19.5288L7.64581 21.0196ZM9.22287 19.4571C9.10708 19.5185 8.98272 19.5621 8.85397 19.5866L9.13345 21.0603C9.40981 21.0079 9.67672 20.9142 9.92526 20.7825L9.22287 19.4571ZM18.8083 11.014L19.8999 12.1057L20.9606 11.045L19.8689 9.95336L18.8083 11.014ZM11.0615 19.8214L15.0303 15.8526L13.9697 14.792L10.0008 18.7608L11.0615 19.8214ZM15.0303 15.8526L17.6856 13.1974L16.6249 12.1367L13.9697 14.792L15.0303 15.8526Z"/>
+    <path opacity="0.5" d="M14.4999 15.3222L12.6465 13.4688M12.4999 17.3222L10.6465 15.4688"/>
+  </symbol>
+
+  <!-- Edit -->
+  <symbol id="icon-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></symbol>
+  <!-- Onion -->
+  <symbol id="icon-onion" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></symbol>
+  <!-- Plus -->
+  <symbol id="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <!-- Duplicate -->
+  <symbol id="icon-duplicate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <!-- Paste -->
+  <symbol id="icon-paste" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></symbol>
+  <!-- Trash -->
+  <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></symbol>
+  <!-- Clear -->
+  <symbol id="icon-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></symbol>
+  <!-- Shifts -->
+  <symbol id="icon-shift-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
+  <symbol id="icon-shift-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+  <symbol id="icon-shift-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></symbol>
+  <symbol id="icon-shift-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></symbol>
+  <symbol id="icon-flip-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-4"/><path d="M12 14v-4"/><path d="M12 6V2"/><path d="M20 17l-4-4 4-4"/><path d="M4 17l4-4-4-4"/></symbol>
+  <symbol id="icon-flip-vertical" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4"/><path d="M14 12h-4"/><path d="M6 12H2"/><path d="M17 20l-4-4-4 4"/><path d="M17 4l-4 4-4-4"/></symbol>
+</svg>
+
+<div class="main-header">
+    <h1>LED Matrix Editor</h1>
+    <a href="https://ko-fi.com/deadline73083" target="_blank" class="support-link">Support Project ☕</a>
+</div>
+
+<div id="top-controls">
+    <fieldset class="control-group">
+        <legend>Canvas</legend>
+        <div class="control-row">
+            <div class="control-item"><label for="widthInput">Width:</label><input type="number" id="widthInput" min="1" max="64" value="8"></div>
+            <div class="control-item"><label for="heightInput">Height:</label><input type="number" id="heightInput" min="1" max="64" value="8"></div>
+        </div>
+        <div class="control-row">
+            <div class="control-item" style="flex-basis: 100%;"><label for="presetsSelect">Presets:</label><select id="presetsSelect" style="flex-grow: 1;"><option value="">-</option><option value="8x8">8x8</option><option value="16x16">16x16</option><option value="32x32">32x32</option><option value="8x32">8x32</option></select></div>
+        </div>
+        <div class="control-row">
+            <button id="applySizeBtn">Apply Size</button>
+        </div>
+    </fieldset>
+
+    <fieldset class="control-group">
+        <legend>Animation & Hardware</legend>
+        <div class="control-row">
+            <div class="control-item"><label for="defaultFPSInput" title="Default speed for new frames.">FPS:</label><input type="number" id="defaultFPSInput" min="1" max="1000" value="10"></div>
+            <div class="control-item"><label for="brightnessInput" title="Hardware brightness limit (0-255). Used for both code generation and Bluetooth transmission.">Bright:</label><input type="number" id="brightnessInput" min="0" max="255" value="64"></div>
+        </div>
+        <div class="control-row">
+            <div class="control-item"><label for="ledPinInput">Pin:</label><input type="number" id="ledPinInput" min="0" max="50" value="6"></div>
+            <div class="control-item"><label for="rotationSelect">Rotate:</label><select id="rotationSelect"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></div>
+        </div>
+        <div class="control-row">
+             <div class="control-item" style="flex-basis: 100%;"><label for="colorOrderSelect">Color Order:</label><select id="colorOrderSelect" style="flex-grow: 1;"><option value="RGB">RGB</option><option value="GRB" selected>GRB</option><option value="BRG">BRG</option><option value="RBG">RBG</option><option value="GBR">GBR</option><option value="BGR">BGR</option></select></div>
+        </div>
+    </fieldset>
+    
+    <fieldset class="control-group">
+        <legend>Layout & Code</legend>
+        <div class="control-row">
+            <div class="control-item" style="flex-basis: 100%;"><label for="layoutPatternSelect">Layout:</label><select id="layoutPatternSelect" style="flex-grow: 1;"><option value="linear">Linear</option><option value="serpentine">Serpentine</option><option value="custom">Custom</option></select></div>
+        </div>
+        <div class="control-row">
+            <button id="openMapBtn" style="width: auto; flex-grow: 1;">🗺️ Custom Map</button>
+        </div>
+        <div class="control-row" style="justify-content: space-around;">
+            <label><input type="checkbox" id="useProgmemCheckbox">PROGMEM</label>
+            <label title="Saves only the changes between frames."><input type="checkbox" id="optimizeDataCheckbox">Optimize</label>
+        </div>
+    </fieldset>
+    
+    <fieldset class="control-group">
+        <legend>Project</legend>
+        <div class="control-row">
+            <button id="exportProjectBtn" style="flex-grow: 1;">💾 Export</button>
+            <button id="importProjectBtn" style="flex-grow: 1;">📂 Import</button>
+        </div>
+        <input type="file" id="importFileInput" accept=".json" style="display: none;">
+    </fieldset>
+</div>
+
+
+<div id="palette-wrapper">
+    <h3>Tools & Palette <small>(B, G, E, I)</small></h3>
+    <div id="palette">
+        <button id="addSwatchBtn" class="tool-btn" title="Add new color to palette (A)"><svg><use href="#icon-plus"/></svg></button>
+        <span class="divider"></span>
+        <button id="drawBtn" class="tool-btn" title="Pencil (B)"><svg><use href="#icon-pencil"/></svg></button>
+        <button id="fillBtn" class="tool-btn" title="Fill (G)"><svg><use href="#icon-fill"/></svg></button>
+        <button id="eraserBtn" class="tool-btn" title="Eraser (E)"><svg><use href="#icon-eraser"/></svg></button>
+        <button id="pipetteBtn" class="tool-btn" title="Eyedropper (I)"><svg><use href="#icon-pipette"/></svg></button>
+        <span class="divider"></span>
+        <div id="palette-swatches" style="display: contents;"></div>
+        <button id="editPaletteBtn" class="tool-btn" title="Edit Palette"><svg><use href="#icon-edit"/></svg></button>
+        <span class="divider"></span>
+        <button id="onionSkinBtn" class="tool-btn" title="Onion Skin"><svg><use href="#icon-onion"/></svg></button>
+    </div>
+</div>
+
+<div id="main-workspace">
+    <div class="workspace-column">
+        <h3>Preview (Click to Play/Pause)</h3>
+        <div id="preview-container">
+            <div id="preview"></div>
+        </div>
+    </div>
+    <div class="workspace-column">
+        <h3>Editor</h3>
+        <div id="matrix-container">
+            <div id="matrix"></div>
+        </div>
+    </div>
+</div>
+
+<div class="timeline-header">
+  <h3 style="margin-bottom: 0;">Timeline</h3>
+  <div class="timeline-controls-group">
+    <button id="undoBtn" class="action-btn" title="Undo (Ctrl+Z)"><svg><use href="#icon-undo"/></svg></button>
+    <button id="redoBtn" class="action-btn" title="Redo (Ctrl+Y)"><svg><use href="#icon-redo"/></svg></button>
+  </div>
+  <div class="timeline-controls-group">
+    <button id="addFrameBtn" class="action-btn" title="Add New Frame"><svg><use href="#icon-plus"/></svg></button>
+    <button id="duplicateFrameBtn" class="action-btn" title="Duplicate Current Frame"><svg><use href="#icon-duplicate"/></svg></button>
+    <button id="copyFrameBtn" class="action-btn text-btn" title="Copy Frame Data (Ctrl+C)">Copy</button>
+    <button id="pasteFrameBtn" class="action-btn" title="Paste Frame Data (Ctrl+V)"><svg><use href="#icon-paste"/></svg></button>
+    <button id="removeFrameBtn" class="action-btn" title="Delete Current Frame"><svg><use href="#icon-trash"/></svg></button>
+  </div>
+  <div class="timeline-controls-group">
+      <button id="clearBtn" class="action-btn" title="Clear Current Frame"><svg><use href="#icon-clear"/></svg></button>
+      <button id="shiftLeftBtn" class="action-btn" title="Shift Left"><svg><use href="#icon-shift-left"/></svg></button>
+      <button id="shiftRightBtn" class="action-btn" title="Shift Right"><svg><use href="#icon-shift-right"/></svg></button>
+      <button id="shiftUpBtn" class="action-btn" title="Shift Up"><svg><use href="#icon-shift-up"/></svg></button>
+      <button id="shiftDownBtn" class="action-btn" title="Shift Down"><svg><use href="#icon-shift-down"/></svg></button>
+      <button id="flipHorizontalBtn" class="action-btn" title="Flip Horizontal"><svg><use href="#icon-flip-horizontal"/></svg></button>
+      <button id="flipVerticalBtn" class="action-btn" title="Flip Vertical"><svg><use href="#icon-flip-vertical"/></svg></button>
+  </div>
+</div>
+<div id="frameTimeline"></div>
+
+<div id="codeSection">
+  <h3>Code & Upload</h3>
+  <div id="code-actions">
+      <div class="timeline-controls-group">
+        <button id="generateCodeBtn">🔄 Generate Arduino Code</button>
+        <button id="copyFirmwareBtn" class="action-btn text-btn" title="Copy ready-to-use firmware for an ESP32 receiver">💾 Copy ESP32 Firmware</button>
+        <button id="sendBluetoothBtn" class="action-btn text-btn" title="Upload animation directly to a compatible device">⚡ Send via BT</button>
+      </div>
+      <div id="code-export-group" class="timeline-controls-group" style="display: none;">
+         <button id="copyCodeBtn">📋 Copy</button>
+         <button id="exportInoBtn">💾 Download .ino</button>
+      </div>
+  </div>
+  <div id="memory-estimate">Estimated Flash Size: ~0 bytes</div>
+  <pre id="exportCode" class="placeholder"></pre>
+</div>
+
+<div id="mapModal" class="modal-overlay">
+  <div class="modal-content">
+    <h2>LED Mapping Editor</h2>
+    <div id="map-container">
+        <div id="mapGrid"></div>
+        <div id="mapInfo">
+            <p>Click on the grid to map pixels to physical LEDs.</p>
+            <p><strong>Assigning LED: <span id="current-led-target">0</span></strong></p>
+            <p>Mapped: <span id="mapped-led-count">0</span> / <span id="total-led-count">0</span></p>
+            <p><small>Hover a mapped cell to see unmap option.</small></p> 
+            <button id="clearMapBtn">Clear Map</button>
+            <button id="undoMapBtn">Undo Step</button>
+        </div>
+    </div>
+    <div class="modal-actions" style="text-align: right; margin-top: 1em;">
+      <button id="cancelMapBtn">Cancel</button>
+      <button id="applyMapBtn">Apply & Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="colorPickerModal" class="modal-overlay">
+    <div class="modal-content">
+        <h2>Color Picker</h2>
+        <div class="color-picker-body">
+            <div id="color-preview" class="color-preview"></div>
+            <div class="color-controls">
+                <div class="color-channel">
+                    <label for="slider-r">R</label>
+                    <input type="range" id="slider-r" min="0" max="255">
+                    <input type="number" id="input-r" min="0" max="255">
+                </div>
+                <div class="color-channel">
+                    <label for="slider-g">G</label>
+                    <input type="range" id="slider-g" min="0" max="255">
+                    <input type="number" id="input-g" min="0" max="255">
+                </div>
+                <div class="color-channel">
+                    <label for="slider-b">B</label>
+                    <input type="range" id="slider-b" min="0" max="255">
+                    <input type="number" id="input-b" min="0" max="255">
+                </div>
+                <div class="hex-input-group">
+                   <label for="hexInput">#</label>
+                   <input type="text" id="hexInput" maxlength="6">
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button id="color-picker-cancel">Cancel</button>
+            <button id="color-picker-ok">OK</button>
+        </div>
+    </div>
+</div>
+
+<div id="bluetoothStatusModal" class="modal-overlay">
+    <div class="modal-content">
+        <h2>Sending via Bluetooth</h2>
+        <p>Please keep the device close to your computer.</p>
+        <div class="progress-bar">
+            <div id="bt-progress-inner" class="progress-bar-inner"></div>
+        </div>
+        <div id="bt-status-text">Requesting device...</div>
+        <div class="modal-actions" style="text-align: center; margin-top: 1.5em;">
+            <button id="bt-cancel-btn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ====================================================================================
+    // --- Firmware Template (Simplified & Robust) ---
+    // ====================================================================================
+    const esp32ReceiverFirmwareTemplate = `
+// Firmware generated by LED Matrix Editor
+// Board: ESP32 with PSRAM (e.g., ESP32-S3)
+// Timestamp: ${new Date().toISOString()}
+
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <FastLED.h>
+#include <esp_heap_caps.h>
+
+// --- User Settings ---
+#define LED_PIN            __LED_PIN__
+#define LED_TYPE           WS2812B
+#define MASTER_BRIGHTNESS  __MASTER_BRIGHTNESS__
+#define COLOR_ORDER        __COLOR_ORDER__
+
+// --- Protocol Commands ---
+#define P_CMD_DATA_CHUNK  0xA1
+#define P_CMD_END_FRAME   0xA2
+#define P_CMD_INIT_ANIM   0xA3
+#define P_CMD_PLAY_ANIM   0xAB
+
+#define SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+#define RX_CHARACTERISTIC_UUID "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+
+// Buffer Config
+const int MAX_PIXELS = 1024; // Max supported pixels
+const int MAX_FRAMES = 50;  
+const int CHUNK_DATA_SIZE = 15;
+const size_t TOTAL_BUFFER_SIZE = MAX_FRAMES * MAX_PIXELS * 3;
+
+// Global State
+portMUX_TYPE sharedStateMux = portMUX_INITIALIZER_UNLOCKED;
+int NUM_LEDS = 64;
+int frameDataSize = 64 * 3;
+volatile int numReceivedFrames = 0;
+volatile bool isPlaying = false;
+volatile bool isReceivingData = false;
+volatile uint8_t g_colorOrder = 1; // 0:RGB, 1:GRB
+
+CRGB leds[MAX_PIXELS];
+uint8_t* animationBuffer;
+
+struct AnimationFrame { uint16_t frameDuration; };
+AnimationFrame animationFrames[MAX_FRAMES];
+
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) { Serial.println("[BLE] Client connected!"); }
+  void onDisconnect(BLEServer* pServer) { Serial.println("[BLE] Client disconnected"); pServer->startAdvertising(); }
+};
+
+class MyCharacteristicCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    String value = pCharacteristic->getValue();
+    if (value.length() == 0) return;
+    const uint8_t* data = (const uint8_t*)value.c_str();
+    size_t len = value.length();
+    uint8_t command = data[0];
+
+    switch(command) {
+      case P_CMD_INIT_ANIM: {
+        if(len < 7) return; 
+        portENTER_CRITICAL(&sharedStateMux);
+        isReceivingData = true; isPlaying = false; numReceivedFrames = 0;
+        int w = data[1]; 
+        int h = data[2];
+        NUM_LEDS = w * h;
+        if (NUM_LEDS > MAX_PIXELS) NUM_LEDS = MAX_PIXELS;
+        frameDataSize = NUM_LEDS * 3;
+        uint8_t receivedBrightness = data[3];
+        // Rotation and Layout are handled by Web App now, so we ignore data[4] and data[5]
+        g_colorOrder = data[6];
+        portEXIT_CRITICAL(&sharedStateMux);
+        
+        uint8_t finalBrightness = map(receivedBrightness, 0, 255, 0, MASTER_BRIGHTNESS);
+        FastLED.setBrightness(finalBrightness);
+        fill_solid(leds, MAX_PIXELS, CRGB::Black);
+        FastLED.show();
+        Serial.printf("[ANIM] Init: %d LEDs (Linear Mode)\\n", NUM_LEDS);
+        break;
+      }
+
+      case P_CMD_DATA_CHUNK: {
+        if(len < 4) return;
+        uint8_t frameIdx = data[1];
+        uint8_t chunkIdx = data[2];
+        uint32_t frameOffset = (uint32_t)frameIdx * frameDataSize;
+        uint32_t chunkOffset = (uint32_t)chunkIdx * CHUNK_DATA_SIZE;
+        size_t dataLen = len - 3;
+        if (frameOffset + chunkOffset + dataLen > TOTAL_BUFFER_SIZE) return;
+        memcpy(animationBuffer + frameOffset + chunkOffset, data + 3, dataLen);
+        break;
+      }
+
+      case P_CMD_END_FRAME: {
+        if(len < 3) return;
+        uint8_t frameIdx = data[1];
+        if (frameIdx < MAX_FRAMES) {
+          uint8_t fps = data[2] == 0 ? 10 : data[2];
+          animationFrames[frameIdx].frameDuration = 1000 / fps;
+          portENTER_CRITICAL(&sharedStateMux);
+          if(frameIdx + 1 > numReceivedFrames) numReceivedFrames = frameIdx + 1;
+          portEXIT_CRITICAL(&sharedStateMux);
+        }
+        break;
+      }
+
+      case P_CMD_PLAY_ANIM: {
+        portENTER_CRITICAL(&sharedStateMux);
+        isReceivingData = false; isPlaying = true;
+        portEXIT_CRITICAL(&sharedStateMux);
+        break;
+      }
+    }
+  }
+};
+
+void animationTask(void *pvParameters) {
+  int currentFrame = 0;
+  unsigned long lastFrameTime = 0;
+  for (;;) {
+    portENTER_CRITICAL(&sharedStateMux);
+    bool shouldPlay = isPlaying;
+    bool isReceiving = isReceivingData;
+    int frameCount = numReceivedFrames;
+    portEXIT_CRITICAL(&sharedStateMux);
+
+    if (isReceiving) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+
+    if (shouldPlay && frameCount > 0) {
+      if (millis() - lastFrameTime >= animationFrames[currentFrame].frameDuration) {
+        lastFrameTime = millis();
+        uint8_t* pixelData = animationBuffer + (currentFrame * frameDataSize);
+        // Direct copy - Web App handles rotation and serpentine mapping!
+        for (int i = 0; i < NUM_LEDS; i++) {
+            uint8_t* pixel = pixelData + (i * 3);
+            leds[i] = CRGB(pixel[0], pixel[1], pixel[2]);
+        }
+        FastLED.show();
+        currentFrame = (currentFrame + 1) % frameCount;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  animationBuffer = (uint8_t*)heap_caps_malloc(TOTAL_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!animationBuffer) {
+    Serial.println("[BLE] PSRAM unavailable, allocating from internal heap...");
+    animationBuffer = (uint8_t*)malloc(TOTAL_BUFFER_SIZE);
+  }
+  if (!animationBuffer) {
+    Serial.println("[BLE] Full buffer allocation failed. Allocating 25 frames...");
+    animationBuffer = (uint8_t*)malloc(TOTAL_BUFFER_SIZE / 2);
+  }
+  if (!animationBuffer) {
+    Serial.println("[ERROR] Failed to allocate animation buffer! Reduce MAX_FRAMES/MAX_PIXELS.");
+    while(1) { delay(1000); }
+  }
+  
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, MAX_PIXELS);
+  FastLED.setCorrection(TypicalLEDStrip);
+  FastLED.setBrightness(MASTER_BRIGHTNESS);
+  fill_solid(leds, MAX_PIXELS, CRGB::Black);
+  FastLED.show();
+  
+  xTaskCreatePinnedToCore(animationTask, "AnimTask", 8192, NULL, 1, NULL, 1);
+  
+  BLEDevice::init("ESP32 Matrix");
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(RX_CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+  pRxCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
+  pService->start();
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMaxPreferred(0x12);
+  BLEDevice::startAdvertising();
+}
+void loop() { delay(2000); }
+`;
+
+    // ====================================================================================
+    // --- Application Logic ---
+    // ====================================================================================
+    const C = {
+        TOOLS: { DRAW: 'draw', ERASER: 'eraser', PIPETTE: 'pipette', FILL: 'fill' },
+        ONION: { OFF: 'off', AUTO: 'auto', MANUAL: 'manual' },
+        LAYOUT: { LINEAR: 'linear', SERPENTINE: 'serpentine', CUSTOM: 'custom' },
+        LOCAL_STORAGE_KEY: 'ledEditorSettings'
+    };
+
+    const utils = {
+        clamp: (v, min, max) => Math.min(max, Math.max(min, v)),
+        deepClone: (obj) => structuredClone(obj),
+        throttle(func, delay) {
+            let inProgress = false; let timeoutId = null;
+            return (...args) => { if (inProgress) return; func(...args); inProgress = true; clearTimeout(timeoutId); timeoutId = setTimeout(() => { inProgress = false; }, delay); };
+        },
+        hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
+        },
+        rgbToHex(r, g, b) {
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toLowerCase();
+        }
+    };
+    
+    const filterExportState = (s) => {
+        const stateToSave = {};
+        const persistentKeys = [ 'width', 'height', 'ledPin', 'brightness', 'defaultFPS', 'colorOrder', 'rotation', 'layoutPattern', 'frames', 'mapping', 'paletteColors', 'useProgmem', 'optimizeData' ];
+        persistentKeys.forEach(key => stateToSave[key] = s[key]);
+        return stateToSave;
+    };
+
+    const initialPaletteColors = ["#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff"];
+    const state = {
+        width: 8, height: 8, ledPin: 6, brightness: 64, defaultFPS: 10, colorOrder: 'GRB', rotation: 0, layoutPattern: C.LAYOUT.SERPENTINE,
+        frames: [], mapping: [], paletteColors: [...initialPaletteColors], useProgmem: false, optimizeData: false, currentFrameIndex: 0,
+        selectedColor: "#00ff00", activeTool: C.TOOLS.DRAW, mouseDown: false, previewRunning: false, isCodeDirty: true, onionSkinMode: C.ONION.OFF,
+        onionSkinPinnedFrameIndex: null, clipboardFrame: null,
+    };
+
+    const history = {
+        undoStack: [], redoStack: [], MAX_HISTORY_SIZE: 50, isDirty: false,
+        record(currentState) { if (this.undoStack.length >= this.MAX_HISTORY_SIZE) this.undoStack.shift(); this.undoStack.push(utils.deepClone(currentState)); this.redoStack.length = 0; this.isDirty = true; ui.updateUndoRedoButtons(); },
+        undo() { if (this.undoStack.length <= 1) return; this.redoStack.push(utils.deepClone(state)); const prevState = this.undoStack.pop(); Object.assign(state, prevState); actions.onContentChanged(true, true); },
+        redo() { if (this.redoStack.length === 0) return; this.undoStack.push(utils.deepClone(state)); const nextState = this.redoStack.pop(); Object.assign(state, nextState); actions.onContentChanged(true, true); },
+        markSaved() { this.isDirty = false; }
+    };
+
+    const actions = {
+        initProject() { state.frames = [this.newFrame()]; state.currentFrameIndex = 0; this.updateMappingPattern(); history.record(state); history.markSaved(); this.updateMemoryEstimate(); },
+        newFrame() { return { pixels: new Array(state.width * state.height).fill("#000000"), fps: state.defaultFPS }; },
+        onContentChanged(fullRender = true, forceSync = false) { state.isCodeDirty = true; this.updateMemoryEstimate(); ui.updateCodeDirtyStatus(); if (fullRender) { render(forceSync); preview.restart(); } },
+        addFrame() { history.record(state); state.frames.splice(++state.currentFrameIndex, 0, this.newFrame()); this.onContentChanged(); },
+        duplicateFrame() { if (state.frames.length > 0) { history.record(state); const newFrame = utils.deepClone(state.frames[state.currentFrameIndex]); state.frames.splice(++state.currentFrameIndex, 0, newFrame); this.onContentChanged(); } },
+        removeFrame() { if (state.frames.length > 1) { history.record(state); if (state.onionSkinMode === C.ONION.MANUAL && state.onionSkinPinnedFrameIndex === state.currentFrameIndex) this.setPinnedOnionSkin(null); state.frames.splice(state.currentFrameIndex, 1); if (state.currentFrameIndex >= state.frames.length) state.currentFrameIndex--; this.onContentChanged(); } },
+        clearFrame() { if (state.frames[state.currentFrameIndex]) { history.record(state); state.frames[state.currentFrameIndex].pixels.fill("#000000"); this.onContentChanged(); } },
+        copyFrame() { if (state.frames.length > 0) { state.clipboardFrame = utils.deepClone(state.frames[state.currentFrameIndex]); ui.updatePasteButton(); } },
+        
+        // FIX: Prevent pasting incompatible frames
+        pasteFrame() { 
+            if (!state.clipboardFrame) return;
+            if (!state.frames[state.currentFrameIndex]) return;
+            const currentSize = state.width * state.height;
+            if (state.clipboardFrame.pixels.length !== currentSize) {
+                alert(`Cannot paste: Size mismatch.\nClipboard: ${state.clipboardFrame.pixels.length} pixels\nCanvas: ${currentSize} pixels`);
+                return;
+            }
+            history.record(state); 
+            state.frames[state.currentFrameIndex] = utils.deepClone(state.clipboardFrame); 
+            this.onContentChanged(); 
+        },
+
+        transformFrame(type) {
+            history.record(state); const { width, height } = state; const pixels = state.frames[state.currentFrameIndex].pixels; const newPixels = [...pixels];
+            for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) { const idx = y * width + x; let srcIdx;
+                switch (type) {
+                    case 'shiftLeft': srcIdx = y * width + (x + 1) % width; break;
+                    case 'shiftRight': srcIdx = y * width + (x - 1 + width) % width; break;
+                    case 'shiftUp': srcIdx = ((y + 1) % height) * width + x; break;
+                    case 'shiftDown': srcIdx = ((y - 1 + height) % height) * width + x; break;
+                    case 'flipHorizontal': srcIdx = y * width + (width - 1 - x); break;
+                    case 'flipVertical': srcIdx = (height - 1 - y) * width + x; break;
+                } newPixels[idx] = pixels[srcIdx];
+            } } state.frames[state.currentFrameIndex].pixels = newPixels; this.onContentChanged();
+        },
+        selectFrame(index) {
+            state.currentFrameIndex = index;
+            ui.updateTimelineActiveFrame();
+            ui.renderMatrix();
+            preview.restart();
+        },
+        reorderFrames(draggedIdx, targetIdx) {
+            history.record(state);
+            if (state.onionSkinMode === C.ONION.MANUAL && state.onionSkinPinnedFrameIndex !== null) {
+                const pinnedIdx = state.onionSkinPinnedFrameIndex;
+                if (pinnedIdx === draggedIdx) state.onionSkinPinnedFrameIndex = targetIdx;
+                else if (pinnedIdx > draggedIdx && pinnedIdx <= targetIdx) state.onionSkinPinnedFrameIndex--;
+                else if (pinnedIdx < draggedIdx && pinnedIdx >= targetIdx) state.onionSkinPinnedFrameIndex++;
+            }
+            state.frames.splice(targetIdx, 0, state.frames.splice(draggedIdx, 1)[0]);
+            state.currentFrameIndex = targetIdx; this.onContentChanged();
+        },
+        toggleOnionSkinMode() { state.onionSkinMode = (state.onionSkinMode === C.ONION.OFF) ? C.ONION.AUTO : C.ONION.OFF; state.onionSkinPinnedFrameIndex = null; render(); },
+        setPinnedOnionSkin(index) { state.onionSkinMode = (state.onionSkinMode === C.ONION.MANUAL && state.onionSkinPinnedFrameIndex === index) ? C.ONION.OFF : C.ONION.MANUAL; state.onionSkinPinnedFrameIndex = (state.onionSkinMode === C.ONION.MANUAL) ? index : null; render(); },
+        setPixels(pixelsToSet, color) { const currentFramePixels = state.frames[state.currentFrameIndex].pixels; let changed = false; pixelsToSet.forEach(p => { const idx = this.getLogicalIndex(p.x, p.y); if (idx >= 0 && currentFramePixels[idx] !== color) { currentFramePixels[idx] = color; changed = true; } }); if (changed) { this.onContentChanged(false); ui.renderMatrix(); ui.updateActiveFrameThumb(); } },
+        setPixel(x, y) { this.setPixels([{x, y}], state.activeTool === C.TOOLS.ERASER ? "#000000" : state.selectedColor); },
+        pickColor(x, y) { const logicIdx = this.getLogicalIndex(x, y); if (logicIdx === undefined || logicIdx < 0) return; const color = state.frames[state.currentFrameIndex]?.pixels[logicIdx] || '#000000'; this.setActiveTool(C.TOOLS.DRAW); this.setSelectedColor(color); },
+        setActiveTool(tool) { state.activeTool = tool; ui.updateToolSelection(); },
+        setSelectedColor(color) { state.selectedColor = color.toLowerCase(); ui.updateToolSelection(); },
+        
+        addNewPaletteColor() { history.record(state); const placeholderColor = `#cccccc`; const newIndex = state.paletteColors.length; state.paletteColors.push(placeholderColor); this.setSelectedColor(placeholderColor); render(); const newSwatchEl = ui.paletteSwatchesDiv.querySelector(`[data-color-index="${newIndex}"]`); if (newSwatchEl) ui.triggerColorEdit(newSwatchEl, newIndex, true); },
+        updatePaletteColor(index, newColor, oldColor) { state.paletteColors[index] = newColor.toLowerCase(); if (state.selectedColor === oldColor) this.setSelectedColor(newColor); this.onContentChanged(); },
+        removePaletteColor(identifier) {
+            history.record(state); let colorToRemove;
+            if (typeof identifier === 'number') { colorToRemove = state.paletteColors[identifier]; state.paletteColors.splice(identifier, 1); }
+            else { colorToRemove = identifier; state.paletteColors = state.paletteColors.filter(c => c !== colorToRemove); }
+            if (state.selectedColor === colorToRemove) this.setSelectedColor('#000000');
+            this.onContentChanged();
+        },
+        
+        setFrameFPS(index, fps) { history.record(state); state.frames[index].fps = fps; this.onContentChanged(); },
+        getLogicalIndex(x, y) { return y * state.width + x; },
+        resizeGrid(oldWidth, oldHeight) { state.frames.forEach(f => { const newPixels = new Array(state.width * state.height).fill("#000000"); for (let y = 0; y < state.height; y++) { for (let x = 0; x < state.width; x++) { if (y < oldHeight && x < oldWidth) newPixels[y * state.width + x] = f.pixels[y * oldWidth + x]; } } f.pixels = newPixels; }); this.updateMappingPattern(); this.onContentChanged(); },
+        setLayoutPattern(pattern) { state.layoutPattern = pattern; this.updateMappingPattern(); this.onContentChanged(); },
+        updateMappingPattern() { const numLeds = state.width * state.height; const newMapping = new Array(numLeds).fill(null); if (state.layoutPattern === C.LAYOUT.LINEAR || state.layoutPattern === C.LAYOUT.SERPENTINE) for (let i = 0; i < numLeds; i++) newMapping[i] = i; else if (state.layoutPattern === C.LAYOUT.CUSTOM) { const oldMapping = [...state.mapping]; for(let i=0; i<numLeds; i++) newMapping[i] = (i < oldMapping.length && oldMapping[i] < numLeds) ? oldMapping[i] : null; } state.mapping = newMapping; },
+        updateMemoryEstimate() { let flashSize = 0; const numPixels = state.width * state.height, numFrames = state.frames.length; if (state.optimizeData && numFrames > 1) { flashSize += numPixels * 4 + numFrames * 2; let deltaCount = 0; for (let i = 1; i < numFrames; i++) for (let j=0; j < numPixels; j++) if(state.frames[i-1].pixels[j] !== state.frames[i].pixels[j]) deltaCount++; flashSize += deltaCount * (2 + 4); } else flashSize += numPixels * numFrames * 4; flashSize += numFrames; if (state.layoutPattern === C.LAYOUT.CUSTOM) flashSize += state.mapping.filter(m => m !== null).length * 2; ui.updateMemoryEstimate(flashSize); },
+        applyFill(startX, startY) {
+            const { width, height } = state, pixels = state.frames[state.currentFrameIndex].pixels; const startIdx = this.getLogicalIndex(startX, startY), targetColor = pixels[startIdx];
+            const fillColor = state.activeTool === C.TOOLS.ERASER ? "#000000" : state.selectedColor;
+            if (targetColor === fillColor) return; history.record(state);
+            const q = [[startX, startY]], visited = new Set([startIdx]), pixelsToSet = [];
+            while (q.length > 0) { const [x, y] = q.shift(); pixelsToSet.push({ x, y }); [[x, y - 1], [x, y + 1], [x - 1, y], [x + 1, y]].forEach(([nx, ny]) => { if (nx >= 0 && nx < width && ny >= 0 && ny < height) { const idx = this.getLogicalIndex(nx, ny); if (!visited.has(idx) && pixels[idx] === targetColor) { visited.add(idx); q.push([nx, ny]); } } }); }
+            this.setPixels(pixelsToSet, fillColor);
+        }
+    };
+    
+    const ui = {
+        matrixDiv: document.getElementById("matrix"), frameTimeline: document.getElementById("frameTimeline"), previewDiv: document.getElementById("preview"),
+        paletteSwatchesDiv: document.getElementById("palette-swatches"), addSwatchBtn: document.getElementById("addSwatchBtn"),
+        drawBtn: document.getElementById("drawBtn"), fillBtn: document.getElementById("fillBtn"), eraserBtn: document.getElementById("eraserBtn"), pipetteBtn: document.getElementById("pipetteBtn"),
+        onionSkinBtn: document.getElementById("onionSkinBtn"), editPaletteBtn: document.getElementById("editPaletteBtn"), undoBtn: document.getElementById("undoBtn"), redoBtn: document.getElementById("redoBtn"),
+        pasteFrameBtn: document.getElementById("pasteFrameBtn"), widthInput: document.getElementById("widthInput"), heightInput: document.getElementById("heightInput"),
+        presetsSelect: document.getElementById("presetsSelect"), applySizeBtn: document.getElementById("applySizeBtn"), defaultFPSInput: document.getElementById("defaultFPSInput"),
+        ledPinInput: document.getElementById("ledPinInput"), brightnessInput: document.getElementById("brightnessInput"), colorOrderSelect: document.getElementById("colorOrderSelect"),
+        rotationSelect: document.getElementById("rotationSelect"), layoutPatternSelect: document.getElementById("layoutPatternSelect"), openMapBtn: document.getElementById("openMapBtn"),
+        generateCodeBtn: document.getElementById("generateCodeBtn"), exportCode: document.getElementById("exportCode"), codeExportGroup: document.getElementById("code-export-group"),
+        useProgmemCheckbox: document.getElementById("useProgmemCheckbox"), optimizeDataCheckbox: document.getElementById("optimizeDataCheckbox"), memoryEstimate: document.getElementById("memory-estimate"),
+        
+        colorPickerModal: document.getElementById('colorPickerModal'), colorPreview: document.getElementById('color-preview'),
+        sliderR: document.getElementById('slider-r'), inputR: document.getElementById('input-r'), sliderG: document.getElementById('slider-g'),
+        inputG: document.getElementById('input-g'), sliderB: document.getElementById('slider-b'), inputB: document.getElementById('input-b'),
+        hexInput: document.getElementById('hexInput'),
+        colorPickerState: { index: null, originalColor: null, isNew: false },
+
+        renderAll(forceSync = false) { this.syncInputsWithState(forceSync); this.renderPalette(); this.renderMatrix(); this.renderTimeline(); this.updateUndoRedoButtons(); this.updatePasteButton(); preview.buildGrid(); preview.updateDisplayMap(); },
+        syncInputsWithState(forceSync) { if (forceSync) { this.widthInput.value = state.width; this.heightInput.value = state.height; } this.checkSizeControls(); this.defaultFPSInput.value = state.defaultFPS; this.ledPinInput.value = state.ledPin; this.brightnessInput.value = state.brightness; this.colorOrderSelect.value = state.colorOrder; this.rotationSelect.value = state.rotation; this.useProgmemCheckbox.checked = state.useProgmem; this.optimizeDataCheckbox.checked = state.optimizeData; this.layoutPatternSelect.value = state.layoutPattern; this.openMapBtn.style.display = state.layoutPattern === C.LAYOUT.CUSTOM ? 'flex' : 'none'; this.onionSkinBtn.classList.toggle('active', state.onionSkinMode !== C.ONION.OFF); },
+        checkSizeControls() { const pendingWidth = parseInt(this.widthInput.value); const pendingHeight = parseInt(this.heightInput.value); const isDirty = pendingWidth !== state.width || pendingHeight !== state.height; this.applySizeBtn.classList.toggle('visible', isDirty); this.widthInput.classList.toggle('dirty', pendingWidth !== state.width); this.heightInput.classList.toggle('dirty', pendingHeight !== state.height); },
+        
+        triggerColorEdit(swatchEl, index, isNew = false) {
+            const originalColor = state.paletteColors[index];
+            this.colorPickerState = { index, originalColor, isNew };
+            const rgb = utils.hexToRgb(originalColor) || { r: 204, g: 204, b: 204 };
+            this.updateColorPickerControls(rgb.r, rgb.g, rgb.b);
+            this.colorPickerModal.style.display = 'flex';
+        },
+        updateColorPickerControls(r, g, b) {
+             r = utils.clamp(r, 0, 255); g = utils.clamp(g, 0, 255); b = utils.clamp(b, 0, 255);
+             this.sliderR.value = this.inputR.value = r;
+             this.sliderG.value = this.inputG.value = g;
+             this.sliderB.value = this.inputB.value = b;
+             const hex = utils.rgbToHex(r, g, b);
+             this.colorPreview.style.backgroundColor = hex;
+             this.hexInput.value = hex.substring(1);
+        },
+        renderPalette() {
+            const fragment = document.createDocumentFragment();
+            state.paletteColors.forEach((c, i) => {
+                const isCustom = !initialPaletteColors.includes(c); const b = document.createElement("button");
+                b.style.backgroundColor = c; b.dataset.color = c; b.dataset.colorIndex = i;
+                b.title = isCustom ? `Select ${c} (Double-click to edit)` : (c === '#000000' ? 'Black' : `Select ${c}`);
+                if (isCustom) b.ondblclick = (e) => { e.stopPropagation(); if (this.paletteSwatchesDiv.classList.contains('edit-mode')) return; this.triggerColorEdit(b, i); };
+                b.onclick = () => { if (this.paletteSwatchesDiv.classList.contains('edit-mode')) return; actions.setActiveTool(C.TOOLS.DRAW); actions.setSelectedColor(c); };
+                if (isCustom) { const deleteBtn = document.createElement('span'); deleteBtn.className = 'delete-swatch'; deleteBtn.innerHTML = '×'; deleteBtn.title = `Delete ${c}`; deleteBtn.onclick = (e) => { e.stopPropagation(); actions.removePaletteColor(i); }; b.appendChild(deleteBtn); }
+                fragment.appendChild(b);
+            });
+            this.paletteSwatchesDiv.innerHTML = ''; this.paletteSwatchesDiv.appendChild(fragment); this.updateToolSelection();
+        },
+        updateToolSelection() {
+            document.querySelectorAll('#palette .tool-btn.selected, #palette-swatches button.selected').forEach(el => el.classList.remove('selected'));
+            this.matrixDiv.classList.remove('pipette-active');
+            const toolButtons = { [C.TOOLS.DRAW]: this.drawBtn, [C.TOOLS.FILL]: this.fillBtn, [C.TOOLS.ERASER]: this.eraserBtn, [C.TOOLS.PIPETTE]: this.pipetteBtn };
+            if (toolButtons[state.activeTool]) toolButtons[state.activeTool].classList.add('selected');
+            if (state.activeTool === C.TOOLS.PIPETTE) this.matrixDiv.classList.add('pipette-active');
+            else { let swatch = Array.from(this.paletteSwatchesDiv.querySelectorAll('button')).find(b => b.dataset.color.toLowerCase() === state.selectedColor.toLowerCase()); if (swatch) swatch.classList.add('selected'); }
+            if(state.onionSkinMode !== C.ONION.OFF) this.onionSkinBtn.classList.add('active');
+        },
+        renderMatrix() {
+            this.matrixDiv.style.gridTemplateColumns = `repeat(${state.width}, 24px)`;
+            let sourceFrame = null;
+            if (state.onionSkinMode === C.ONION.AUTO && state.currentFrameIndex > 0) sourceFrame = state.frames[state.currentFrameIndex - 1];
+            else if (state.onionSkinMode === C.ONION.MANUAL && state.onionSkinPinnedFrameIndex !== null && state.onionSkinPinnedFrameIndex !== state.currentFrameIndex) sourceFrame = state.frames[state.onionSkinPinnedFrameIndex];
+            const currentFrame = state.frames[state.currentFrameIndex]; if (!currentFrame) return;
+            let pixels = this.matrixDiv.childNodes;
+            if (pixels.length !== state.width * state.height) {
+                this.matrixDiv.innerHTML = ''; const fragment = document.createDocumentFragment();
+                for (let i = 0; i < state.width * state.height; i++) { const pixelEl = document.createElement("div"); pixelEl.className = "pixel"; pixelEl.dataset.x = i % state.width; pixelEl.dataset.y = Math.floor(i / state.width); fragment.appendChild(pixelEl); }
+                this.matrixDiv.appendChild(fragment); pixels = this.matrixDiv.childNodes;
+            }
+            for (let i = 0; i < pixels.length; i++) { const pixelEl = pixels[i], logicIdx = i; const currentColor = currentFrame.pixels[logicIdx] || "#000000"; let onionColorValue = "#000000"; if (sourceFrame) onionColorValue = sourceFrame.pixels[logicIdx] || "#000000"; pixelEl.style.setProperty('--onion-skin-color', onionColorValue + '40'); const currentDisplayColor = (currentColor === "#000000" && onionColorValue !== "#000000") ? 'transparent' : currentColor; pixelEl.style.setProperty('--current-pixel-color', currentDisplayColor); }
+        },
+        renderTimeline() {
+            const fragment = document.createDocumentFragment();
+            state.frames.forEach((frame, i) => {
+                const container = document.createElement('div'); container.className = 'frame-container'; container.dataset.frameIndex = i;
+                const thumb = document.createElement("div"); thumb.className = "frame-thumb"; thumb.classList.toggle('active', i === state.currentFrameIndex);
+                thumb.style.setProperty("--w", state.width); thumb.onclick = () => actions.selectFrame(i); thumb.draggable = true;
+                thumb.ondragstart = e => { e.dataTransfer.setData("text/plain", i); setTimeout(() => container.style.opacity = '0.5', 0); };
+                thumb.ondragend = () => container.style.opacity = '1'; thumb.ondragover = e => e.preventDefault();
+                thumb.ondrop = e => { e.preventDefault(); const draggedIdx = parseInt(e.dataTransfer.getData("text/plain")); if (draggedIdx !== i) actions.reorderFrames(draggedIdx, i); };
+                for(let p=0; p < frame.pixels.length; p++) { const px = document.createElement("div"); px.style.backgroundColor = frame.pixels[p] || "#000000"; thumb.appendChild(px); }
+                const actionsDiv = document.createElement('div'); actionsDiv.className = 'frame-actions';
+                const onionBtn = document.createElement('button'); onionBtn.className = 'frame-onion-btn'; onionBtn.innerHTML = '👁️'; onionBtn.title = 'Use as onion skin reference';
+                if (state.onionSkinMode === C.ONION.MANUAL && state.onionSkinPinnedFrameIndex === i) onionBtn.classList.add('active');
+                onionBtn.onclick = (e) => { e.stopPropagation(); actions.setPinnedOnionSkin(i); }; actionsDiv.appendChild(onionBtn); thumb.appendChild(actionsDiv);
+                const fpsLabel = document.createElement("div"); fpsLabel.className = "frame-fps"; fpsLabel.title = "Click to edit FPS"; fpsLabel.textContent = `${frame.fps} FPS`;
+                fpsLabel.onclick = (e) => { e.stopPropagation(); const input = document.createElement('input'); input.type = 'number'; input.className = 'frame-fps-input'; input.value = frame.fps; input.onblur = () => { const newFPS = utils.clamp(parseInt(input.value) || state.defaultFPS, 1, 1000); if (newFPS !== frame.fps) { actions.setFrameFPS(i, newFPS); } else { this.renderTimeline(); } }; input.onkeydown = (ev) => { if (ev.key === 'Enter') input.blur(); if (ev.key === 'Escape') { input.value = frame.fps; input.blur(); } }; fpsLabel.replaceWith(input); input.select(); };
+                container.appendChild(thumb); container.appendChild(fpsLabel); fragment.appendChild(container);
+            });
+            this.frameTimeline.innerHTML = ''; this.frameTimeline.appendChild(fragment);
+        },
+        updateTimelineActiveFrame() {
+            const thumbs = this.frameTimeline.querySelectorAll('.frame-thumb');
+            thumbs.forEach((thumb, idx) => {
+                thumb.classList.toggle('active', idx === state.currentFrameIndex);
+            });
+        },
+        updateActiveFrameThumb() { const frame = state.frames[state.currentFrameIndex]; if (!frame) return; const thumbContainer = this.frameTimeline.querySelector(`.frame-container[data-frame-index="${state.currentFrameIndex}"]`); if (!thumbContainer) return; const thumb = thumbContainer.querySelector('.frame-thumb'); if (!thumb) return; const thumbPixels = thumb.childNodes; for(let i=0; i < frame.pixels.length; i++) { if (thumbPixels[i]) thumbPixels[i].style.backgroundColor = frame.pixels[i] || "#000000"; } },
+        updateUndoRedoButtons() { this.undoBtn.disabled = history.undoStack.length <= 1; this.redoBtn.disabled = history.redoStack.length === 0; },
+        updatePasteButton() { this.pasteFrameBtn.disabled = state.clipboardFrame === null; },
+        updateCodeDirtyStatus() { this.codeExportGroup.style.display = state.isCodeDirty ? 'none' : 'flex'; this.generateCodeBtn.classList.toggle('attention', state.isCodeDirty); },
+        updateMemoryEstimate(bytes) { this.memoryEstimate.textContent = `Estimated Flash Size: ~${bytes} bytes`; },
+        rebuildMappingGrid() {
+            const mapGrid = document.getElementById("mapGrid"), mapInfo = { target: document.getElementById('current-led-target'), mapped: document.getElementById('mapped-led-count'), total: document.getElementById('total-led-count')}; const numLeds = state.width * state.height; const currentMapping = state.mapping;
+            const updateMapInfo = () => { const mappedCount = currentMapping.filter(v => v !== null).length, nextSlot = currentMapping.indexOf(null); mapInfo.target.textContent = nextSlot !== -1 ? nextSlot : "Done"; mapInfo.mapped.textContent = mappedCount; mapInfo.total.textContent = numLeds; };
+            mapGrid.style.gridTemplateColumns = `repeat(${state.width}, 1fr)`; mapGrid.innerHTML = "";
+            for(let i = 0; i < numLeds; i++) { const pixel = document.createElement('div'); pixel.className = 'map-pixel'; pixel.dataset.logicIndex = i; const existingMapIndex = currentMapping.indexOf(i); if (existingMapIndex !== -1) { pixel.classList.add('mapped'); pixel.textContent = existingMapIndex; const unmapBtn = document.createElement('div'); unmapBtn.className = 'unmap-btn'; unmapBtn.textContent = '×'; unmapBtn.title = 'Unmap'; unmapBtn.onclick = (e) => { e.stopPropagation(); currentMapping[existingMapIndex] = null; this.rebuildMappingGrid(); }; pixel.appendChild(unmapBtn); } else { pixel.onclick = () => { let physicalLedIndex = currentMapping.indexOf(null); if(physicalLedIndex !== -1) { currentMapping[physicalLedIndex] = i; this.rebuildMappingGrid(); } }; } mapGrid.appendChild(pixel); }
+            updateMapInfo();
+            document.getElementById('clearMapBtn').onclick = () => { state.mapping = new Array(numLeds).fill(null); this.rebuildMappingGrid(); };
+            document.getElementById('undoMapBtn').onclick = () => { let lastMappedPhysIndex = -1; for(let i = currentMapping.length - 1; i >= 0; i--) if (currentMapping[i] !== null) { lastMappedPhysIndex = i; break; } if (lastMappedPhysIndex !== -1) { currentMapping[lastMappedPhysIndex] = null; this.rebuildMappingGrid(); } };
+        }
+    };
+    const render = ui.renderAll.bind(ui);
+
+    const preview = {
+        previewDiv: document.getElementById("preview"), previewTimer: null,
+        applyRotation(logicalIndex) {
+            const { width, height } = state; const rotation = parseInt(state.rotation); if (rotation === 0) return logicalIndex;
+            const x = logicalIndex % width, y = Math.floor(logicalIndex / width); let rotX, rotY;
+            const rotatedGridWidth = (rotation === 90 || rotation === 270) ? height : width;
+
+            switch (rotation) {
+                case 90:  rotX = (height - 1) - y; rotY = x; break;
+                case 180: rotX = (width - 1) - x;  rotY = (height - 1) - y; break;
+                case 270: rotX = y; rotY = (width - 1) - x; break;
+                default:  return logicalIndex;
+            }
+            return rotY * rotatedGridWidth + rotX;
+        },
+        buildGrid() { const w = (parseInt(state.rotation) === 90 || parseInt(state.rotation) === 270) ? state.height : state.width; this.previewDiv.style.gridTemplateColumns = `repeat(${w}, 24px)`; this.previewDiv.innerHTML = ''; const fragment = document.createDocumentFragment(); for (let i = 0; i < w * ((parseInt(state.rotation) === 90 || parseInt(state.rotation) === 270) ? state.width : state.height); i++) { const div = document.createElement("div"); div.className = "pixel"; fragment.appendChild(div); } this.previewDiv.appendChild(fragment); },
+        updateDisplayMap() { const { width, layoutPattern, mapping } = state; const previewPixels = Array.from(this.previewDiv.childNodes); previewPixels.forEach(p => { p.dataset.logicalIndex = -1; p.classList.add('placeholder'); }); for (let physIdx = 0; physIdx < mapping.length; physIdx++) { let preRotationLogicalIndex; if (layoutPattern === C.LAYOUT.CUSTOM) preRotationLogicalIndex = mapping[physIdx]; else if (layoutPattern === C.LAYOUT.LINEAR) preRotationLogicalIndex = physIdx; else { const y = Math.floor(physIdx / width); let x = physIdx % width; if (y % 2 !== 0) x = (width - 1) - x; preRotationLogicalIndex = y * width + x; } if (preRotationLogicalIndex === null || preRotationLogicalIndex >= (state.width * state.height)) continue; const rotatedIndex = this.applyRotation(preRotationLogicalIndex); if (rotatedIndex < previewPixels.length) { previewPixels[rotatedIndex].dataset.logicalIndex = preRotationLogicalIndex; previewPixels[rotatedIndex].classList.remove('placeholder'); } } },
+        step(frameIdx) { if (!state.previewRunning || !state.frames.length) return this.stop(); const frame = state.frames[frameIdx]; if (!frame) return this.stop(); const frameData = frame.pixels, previewPixels = this.previewDiv.childNodes; for (let i = 0; i < previewPixels.length; i++) { const pixelEl = previewPixels[i], logicalIndex = parseInt(pixelEl.dataset.logicalIndex); if (logicalIndex !== -1 && logicalIndex < frameData.length) { pixelEl.style.setProperty('--current-pixel-color', frameData[logicalIndex] || '#000'); pixelEl.style.setProperty('--onion-skin-color', 'transparent'); } else { pixelEl.style.setProperty('--current-pixel-color', 'transparent'); pixelEl.style.setProperty('--onion-skin-color', 'transparent'); } } this.previewTimer = setTimeout(() => this.step((frameIdx + 1) % state.frames.length), 1000 / frame.fps); },
+        start() { if (state.previewRunning || !state.frames.length) return; state.previewRunning = true; this.step(state.currentFrameIndex); },
+        stop() { state.previewRunning = false; clearTimeout(this.previewTimer); },
+        restart() { this.stop(); this.start(); },
+    };
+    
+    const exporter = {
+        exportCodeEl: document.getElementById("exportCode"),
+        colorToHex: (c) => `0x${(c || '#000000').substring(1).toUpperCase()}`,
+        _buildHeader: (s) => `// Generated with LED Matrix Editor\n// Layout: ${s.layoutPattern}, Rotation: ${s.rotation}°, Optimized: ${s.optimizeData ? 'Yes' : 'No'}\n\n`,
+        _buildIncludes: (s) => `#include <FastLED.h>\n` + (s.useProgmem ? `#include <avr/pgmspace.h>\n` : ''),
+        _buildDefines: (s) => `\n#define LED_PIN      ${s.ledPin}\n` + `#define BRIGHTNESS   ${s.brightness}\n` + `#define NUM_LEDS     ${s.mapping.filter(m => m !== null).length}\n` + `#define NUM_FRAMES   ${s.frames.length > 0 ? s.frames.length : 1}\n` + `#define MATRIX_WIDTH ${s.width}\n` + `#define MATRIX_HEIGHT ${s.height}\n` + `#define ROTATION     ${s.rotation}\n\n` + `CRGB leds[NUM_LEDS];\n`,
+        _buildDataArrays(s) { const fData = s.frames.length > 0 ? s.frames : [actions.newFrame()], nFrames = fData.length, progmem = s.useProgmem ? "PROGMEM " : ""; let code = ""; if (s.optimizeData && nFrames > 1) { code += `uint32_t logicalCanvas[MATRIX_WIDTH * MATRIX_HEIGHT];\n\n`; code += this._generateOptimizedCode(fData, progmem); } else { code += this._generateFullCode(fData, progmem); } code += `const uint8_t frameRates[NUM_FRAMES] ${progmem}= { ${fData.map(f => utils.clamp(f.fps, 1, 255) || 10).join(", ")} };\n\n`; if (s.layoutPattern === C.LAYOUT.CUSTOM) code += `const uint16_t ledMap[NUM_LEDS] ${progmem} = { ${s.mapping.filter(m => m !== null).join(", ")} };\n\n`; return code; },
+        _generateOptimizedCode(fData, progmem) { let code = `const uint32_t initialFrame[MATRIX_WIDTH * MATRIX_HEIGHT] ${progmem} = {\n  ` + fData[0].pixels.map((p, i) => (i > 0 && i % state.width === 0 ? '\n  ' : '') + this.colorToHex(p)).join(', ') + `\n};\n\n`; const deltaIndices = [], deltaColors = [], framePointers = [0]; for (let i = 1; i < fData.length; i++) { const prev = fData[i - 1].pixels, curr = fData[i].pixels; for (let j = 0; j < curr.length; j++) if (curr[j] !== prev[j]) { deltaIndices.push(j); deltaColors.push(this.colorToHex(curr[j])); } framePointers.push(deltaIndices.length); } code += `const uint16_t frameDataPointers[NUM_FRAMES] ${progmem} = { ${framePointers.join(', ')} };\n\n`; code += `const uint16_t animationDeltaIndices[] ${progmem} = {\n  ` + (deltaIndices.length > 0 ? deltaIndices.join(', ') : '') + `\n};\n`; code += `const uint32_t animationDeltaColors[] ${progmem} = {\n  ` + (deltaColors.length > 0 ? deltaColors.join(', ') : '') + `\n};\n\n`; return code; },
+        _generateFullCode(fData, progmem) { return `const uint32_t animationFrames[NUM_FRAMES][MATRIX_WIDTH * MATRIX_HEIGHT] ${progmem}= {\n` + fData.map((frame, f) => `  { // Frame ${f}\n    ` + frame.pixels.map((p, i) => (i > 0 && i % state.width === 0 ? `\n    ` : (i > 0 ? ", " : "")) + this.colorToHex(p)).join('') + `\n  }`).join(',\n') + `\n};\n\n`; },
+        _buildHelperFunctions(s) {
+            let code = `uint16_t applyRotation(uint16_t logicalIndex) {\n  uint16_t x = logicalIndex % MATRIX_WIDTH;\n  uint16_t y = logicalIndex / MATRIX_WIDTH;\n  #if (MATRIX_WIDTH == MATRIX_HEIGHT)\n    switch(ROTATION) {\n      case 90:  return ((MATRIX_WIDTH - 1) - y) + x * MATRIX_WIDTH;\n      case 180: return ((MATRIX_WIDTH - 1) - x) + ((MATRIX_HEIGHT - 1) - y) * MATRIX_WIDTH;\n      case 270: return y + ((MATRIX_WIDTH - 1) - x) * MATRIX_WIDTH;\n      default:  return logicalIndex;\n    }\n  #else\n    if (ROTATION == 180) {\n      return ((MATRIX_WIDTH - 1) - x) + ((MATRIX_HEIGHT - 1) - y) * MATRIX_WIDTH;\n    }\n    return logicalIndex;\n  #endif\n}\n\n`;
+            if (s.layoutPattern !== C.LAYOUT.CUSTOM) {
+                code += `uint16_t getLogicalIndex(uint16_t physicalIndex) {`;
+                if (s.layoutPattern === C.LAYOUT.LINEAR) code += ` return physicalIndex; `;
+                else if (s.layoutPattern === C.LAYOUT.SERPENTINE) code += ` uint16_t y = physicalIndex / MATRIX_WIDTH; uint16_t x = physicalIndex % MATRIX_WIDTH; if (y % 2 != 0) { x = (MATRIX_WIDTH - 1) - x; } return y * MATRIX_WIDTH + x; `;
+                code += `}\n\n`;
+            }
+            return code;
+        },
+        _buildSetup(s) { let code = `void setup(){\n  FastLED.addLeds<WS2812B,LED_PIN,${s.colorOrder}>(leds,NUM_LEDS);\n  FastLED.setBrightness(BRIGHTNESS);\n`; if (s.optimizeData && s.frames.length > 1) code += `  for (int i=0; i < MATRIX_WIDTH * MATRIX_HEIGHT; i++) logicalCanvas[i] = ${s.useProgmem ? "pgm_read_dword(&initialFrame[i])" : "initialFrame[i]"};\n`; return code + `}\n\n`; },
+        _buildLoop(s) { const nFrames = s.frames.length > 0 ? s.frames.length : 1, useProgmem = s.useProgmem, frGet = useProgmem ? "pgm_read_byte(&frameRates[currentFrame])" : "frameRates[currentFrame]"; let code = `void loop(){\n  static uint16_t currentFrame = 0;\n  static unsigned long lastMillis = 0;\n  if(millis() - lastMillis >= 1000 / ${frGet}){\n    lastMillis=millis();\n`; if (s.optimizeData && nFrames > 1) { code += `    if (currentFrame > 0) {\n` + `      uint16_t startPtr = ${useProgmem ? "pgm_read_word(&frameDataPointers[currentFrame - 1])" : "frameDataPointers[currentFrame - 1]"};\n` + `      uint16_t endPtr = ${useProgmem ? "pgm_read_word(&frameDataPointers[currentFrame])" : "frameDataPointers[currentFrame]"};\n` + `      for (uint16_t k = startPtr; k < endPtr; k++) {\n` + `        logicalCanvas[${useProgmem ? "pgm_read_word(&animationDeltaIndices[k])" : "animationDeltaIndices[k]"}] = ${useProgmem ? "pgm_read_dword(&animationDeltaColors[k])" : "animationDeltaColors[k]"};\n` + `      }\n    }\n`; } code += `    for(uint16_t i=0; i < NUM_LEDS; i++){\n      uint16_t logicalIndex = ${s.layoutPattern === C.LAYOUT.CUSTOM ? (useProgmem ? "pgm_read_word(&ledMap[i])" : "ledMap[i]") : "getLogicalIndex(i)"};\n      uint16_t rotatedIndex = applyRotation(logicalIndex);\n      leds[i] = ${ (s.optimizeData && nFrames > 1) ? "logicalCanvas[rotatedIndex]" : (useProgmem ? "pgm_read_dword(&animationFrames[currentFrame][rotatedIndex])" : "animationFrames[currentFrame][rotatedIndex]") };\n    }\n    FastLED.show();\n\n`; code += `    currentFrame = (currentFrame + 1) % NUM_FRAMES;\n`; if (s.optimizeData && nFrames > 1) code += `    if (currentFrame == 0) for (int i = 0; i < MATRIX_WIDTH * MATRIX_HEIGHT; i++) logicalCanvas[i] = ${useProgmem ? "pgm_read_dword(&initialFrame[i])" : "initialFrame[i]"};\n`; return code + `  }\n}\n`; },
+        generateCode() { if (state.mapping.filter(m => m !== null).length === 0) { this.exportCodeEl.textContent = "// Error: No pixels mapped. Please set a pixel map first."; return this.exportCodeEl.classList.add('placeholder'); } this.exportCodeEl.textContent = this._buildHeader(state) + this._buildIncludes(state) + this._buildDefines(state) + this._buildDataArrays(state) + this._buildHelperFunctions(state) + this._buildSetup(state) + this._buildLoop(state); this.exportCodeEl.classList.remove('placeholder'); state.isCodeDirty = false; ui.updateCodeDirtyStatus(); }
+    };
+
+    const bluetooth = {
+        NUS_SERVICE_UUID:         '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+        NUS_CHARACTERISTIC_RX_UUID: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+        CMD_DATA_CHUNK:  0xA1, CMD_END_FRAME: 0xA2, CMD_INIT_ANIM: 0xA3, CMD_PLAY_ANIM: 0xAB,
+        CHUNK_DATA_SIZE: 15,
+
+        isSending: false, cancelSend: false, device: null, rxCharacteristic: null,
+        
+        statusModal: document.getElementById('bluetoothStatusModal'),
+        statusText: document.getElementById('bt-status-text'),
+        progressBar: document.getElementById('bt-progress-inner'),
+        cancelBtn: document.getElementById('bt-cancel-btn'),
+
+        delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); },
+        showStatusModal() { this.statusModal.style.display = 'flex'; },
+        hideStatusModal() { this.statusModal.style.display = 'none'; },
+        updateStatus(text, progress) { if (text) this.statusText.textContent = text; if (progress !== undefined) this.progressBar.style.width = `${progress}%`; },
+
+        async disconnect() {
+            if (this.device && this.device.gatt.connected) { this.device.gatt.disconnect(); }
+            this.device = null; this.rxCharacteristic = null;
+        },
+
+        // --- FIXED: Pre-calculate rotation and layout in JS before sending ---
+        async sendAnimation() {
+            if (this.isSending) return;
+            this.isSending = true; this.cancelSend = false;
+            let server;
+
+            this.showStatusModal();
+            this.updateStatus('Processing data...', 0);
+
+            // 1. Prepare data (Apply Rotation & Serpentine mapping locally in JS)
+            const numLEDs = state.mapping.length;
+            const rotation = parseInt(state.rotation);
+            const w = state.width;
+            const h = state.height;
+
+            const preProcessedFrames = state.frames.map(frame => {
+                const buffer = new Uint8Array(numLEDs * 3);
+                
+                // Iterate through every physical LED (0 to N)
+                for (let physIdx = 0; physIdx < numLEDs; physIdx++) {
+                    let logicalIdx = -1;
+
+                    // Step A: Determine Logical Coordinate (x,y) for this physical LED based on Layout
+                    if (state.layoutPattern === C.LAYOUT.CUSTOM) {
+                        logicalIdx = state.mapping[physIdx] !== null ? state.mapping[physIdx] : -1;
+                    } else {
+                        // Default to Linear logic first
+                        let ly = Math.floor(physIdx / w);
+                        let lx = physIdx % w;
+                        
+                        // Apply Serpentine if needed
+                        if (state.layoutPattern === C.LAYOUT.SERPENTINE) {
+                            if (ly % 2 !== 0) { lx = (w - 1) - lx; }
+                        }
+                        logicalIdx = ly * w + lx;
+                    }
+
+                    if (logicalIdx === -1 || logicalIdx >= frame.pixels.length) continue;
+
+                    // Step B: Apply Inverse Rotation to find which pixel from source frame goes here
+                    let lx = logicalIdx % w;
+                    let ly = Math.floor(logicalIdx / w);
+                    let sx, sy;
+
+                    if (w === h) {
+                        switch (rotation) {
+                            case 90:  sx = ly; sy = (h - 1) - lx; break;
+                            case 180: sx = (w - 1) - lx; sy = (h - 1) - ly; break;
+                            case 270: sx = (w - 1) - ly; sy = lx; break;
+                            default:  sx = lx; sy = ly;
+                        }
+                    } else {
+                        if (rotation === 180) {
+                            sx = (w - 1) - lx;
+                            sy = (h - 1) - ly;
+                        } else if (rotation === 90) {
+                            const offX = Math.floor((w - h) / 2);
+                            const offY = Math.floor((h - w) / 2);
+                            sx = ly - offY;
+                            sy = (h - 1) - (lx - offX);
+                        } else if (rotation === 270) {
+                            const offX = Math.floor((w - h) / 2);
+                            const offY = Math.floor((h - w) / 2);
+                            sx = (w - 1) - (ly - offY);
+                            sy = lx - offX;
+                        } else {
+                            sx = lx;
+                            sy = ly;
+                        }
+                    }
+
+                    // Check bounds for non-square rotations
+                    if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
+                        buffer[physIdx*3] = 0;
+                        buffer[physIdx*3+1] = 0;
+                        buffer[physIdx*3+2] = 0;
+                        continue;
+                    }
+
+                    const sourcePixelIdx = sy * w + sx;
+                    const hexColor = frame.pixels[sourcePixelIdx] || '#000000';
+                    const rgb = utils.hexToRgb(hexColor) || {r:0, g:0, b:0};
+                    
+                    buffer[physIdx*3] = rgb.r;
+                    buffer[physIdx*3+1] = rgb.g;
+                    buffer[physIdx*3+2] = rgb.b;
+                }
+                return { data: buffer, fps: frame.fps };
+            });
+
+            try {
+                this.updateStatus('Requesting Bluetooth device...', 0);
+                this.device = await navigator.bluetooth.requestDevice({ filters: [{ services: [this.NUS_SERVICE_UUID] }] });
+                this.device.addEventListener('gattserverdisconnected', () => this.disconnect());
+
+                this.updateStatus(`Connecting to ${this.device.name}...`, 5);
+                server = await this.device.gatt.connect();
+                
+                this.updateStatus('Getting service...', 10);
+                const service = await server.getPrimaryService(this.NUS_SERVICE_UUID);
+                this.rxCharacteristic = await service.getCharacteristic(this.NUS_CHARACTERISTIC_RX_UUID);
+                
+                this.updateStatus('Sending configuration...', 12);
+                
+                const colorOrderMap = { 'RGB': 0, 'GRB': 1, 'BRG': 2, 'RBG': 3, 'GBR': 4, 'BGR': 5 };
+                const colorOrderValue = colorOrderMap[state.colorOrder] || 1;
+
+                // Send INIT: 
+                // We send numLEDs as width, 1 as height (Linear mode), Rotation=0, Layout=0
+                // This forces ESP32 to treat it as a dumb strip, since we pre-calculated everything.
+                // We split numLEDs into two bytes if > 255 (Simple protocol hack: w=numLEDs%255, h=numLEDs/255 if needed, but for now stick to simple w/h if <255)
+                // Actually, the protocol expects W and H. If W*H = Total, it works.
+                // Let's rely on NUM_LEDS calc on device.
+                
+                // IMPORTANT: Sending rotation=0, layout=0 to disable device-side math
+                const initPacket = new Uint8Array([
+                    this.CMD_INIT_ANIM, 
+                    state.width, state.height, state.brightness,
+                    0, 0, colorOrderValue 
+                ]);
+                await this.rxCharacteristic.writeValueWithoutResponse(initPacket);
+                this.updateStatus('Initializing animation on device...', 15);
+                await this.delay(100);
+
+                for (let frameIdx = 0; frameIdx < preProcessedFrames.length; frameIdx++) {
+                    if (this.cancelSend) break;
+                    const frame = preProcessedFrames[frameIdx];
+                    const numChunks = Math.ceil(frame.data.length / this.CHUNK_DATA_SIZE);
+
+                    for (let chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
+                        if (this.cancelSend) break;
+                        const start = chunkIdx * this.CHUNK_DATA_SIZE;
+                        const chunkData = frame.data.slice(start, start + this.CHUNK_DATA_SIZE);
+                        const packet = new Uint8Array(3 + chunkData.length);
+                        packet[0] = this.CMD_DATA_CHUNK; packet[1] = frameIdx; packet[2] = chunkIdx;
+                        packet.set(chunkData, 3);
+                        
+                        await this.rxCharacteristic.writeValueWithoutResponse(packet);
+                        
+                        const baseProgress = 15 + (frameIdx / preProcessedFrames.length) * 80;
+                        const chunkProgress = (chunkIdx / numChunks) * (80 / preProcessedFrames.length);
+                        this.updateStatus(`Sending frame ${frameIdx + 1}/${preProcessedFrames.length}, chunk ${chunkIdx + 1}/${numChunks}`, baseProgress + chunkProgress);
+                        
+                        await this.delay(30);
+                    }
+                    if (this.cancelSend) break;
+
+                    const endPacket = new Uint8Array([this.CMD_END_FRAME, frameIdx, frame.fps]);
+                    await this.rxCharacteristic.writeValueWithoutResponse(endPacket);
+                    await this.delay(50);
+                }
+
+                if (this.cancelSend) {
+                    this.updateStatus('Send cancelled by user.', 0);
+                } else {
+                    this.updateStatus('Sending play command...', 99);
+                    await this.rxCharacteristic.writeValueWithoutResponse(new Uint8Array([this.CMD_PLAY_ANIM]));
+                    this.updateStatus('Animation sent successfully!', 100);
+                }
+
+            } catch (err) {
+                console.error("Bluetooth Error:", err);
+                this.updateStatus(`Error: ${err.message}`, 0);
+            } finally {
+                await this.delay(2000);
+                await this.disconnect();
+                this.hideStatusModal();
+                this.isSending = false;
+            }
+        }
+    };
+    
+    function setupEventListeners() {
+        const handleSizeInputChange = () => ui.checkSizeControls();
+        const handlePresetChange = e => { const [w, h] = e.target.value.split('x').map(Number); if (w && h) { ui.widthInput.value = w; ui.heightInput.value = h; ui.checkSizeControls(); } e.target.value = ""; };
+        const isCanvasEmpty = () => { if (state.frames.length > 1) return false; if (state.frames.length === 0) return true; return !state.frames[0].pixels.some(p => p !== '#000000'); };
+        ui.applySizeBtn.addEventListener('click', () => {
+            const newWidth = parseInt(ui.widthInput.value), newHeight = parseInt(ui.heightInput.value);
+            if (!isCanvasEmpty() && !window.confirm(`Are you sure you want to change the canvas size to ${newWidth}x${newHeight}? This may crop your animation and cannot be undone.`)) { ui.widthInput.value = state.width; ui.heightInput.value = state.height; ui.checkSizeControls(); return; }
+            history.record(state); const oldW = state.width, oldH = state.height; state.width = newWidth; state.height = newHeight; actions.resizeGrid(oldW, oldH); ui.checkSizeControls();
+        });
+
+        // FIX: Robust input validation
+        const validateSizeInput = (e) => {
+            let val = parseInt(e.target.value);
+            if (isNaN(val) || val < 1) val = 8;
+            if (val > 64) val = 64; // Hard limit to prevent browser crash
+            e.target.value = val;
+            ui.checkSizeControls();
+        };
+
+        ui.widthInput.addEventListener('change', validateSizeInput);
+        ui.heightInput.addEventListener('change', validateSizeInput);
+        ui.widthInput.addEventListener('input', () => ui.checkSizeControls()); 
+        ui.heightInput.addEventListener('input', () => ui.checkSizeControls()); 
+
+        ui.presetsSelect.addEventListener('change', handlePresetChange);
+        
+        const genericChangeHandler = (key, isInt = true) => e => { history.record(state); state[key] = isInt ? (parseInt(e.target.value) || 0) : e.target.value; actions.onContentChanged(); savePreferences(); };
+        ui.defaultFPSInput.addEventListener('change', genericChangeHandler('defaultFPS')); ui.ledPinInput.addEventListener('change', genericChangeHandler('ledPin')); ui.brightnessInput.addEventListener('change', genericChangeHandler('brightness')); ui.rotationSelect.addEventListener('change', genericChangeHandler('rotation')); ui.colorOrderSelect.addEventListener('change', genericChangeHandler('colorOrder', false)); ui.layoutPatternSelect.addEventListener('change', e => { history.record(state); actions.setLayoutPattern(e.target.value); }); ui.useProgmemCheckbox.addEventListener('change', e => { history.record(state); state.useProgmem = e.target.checked; actions.onContentChanged(); }); ui.optimizeDataCheckbox.addEventListener('change', e => { history.record(state); state.optimizeData = e.target.checked; actions.onContentChanged(); });
+        
+        const toolKeyMap = { 'b': C.TOOLS.DRAW, 'g': C.TOOLS.FILL, 'e': C.TOOLS.ERASER, 'i': C.TOOLS.PIPETTE, 'a': 'add_color' };
+        document.addEventListener('keydown', e => { if (document.activeElement.tagName === 'INPUT' || document.querySelector('.modal-overlay[style*="display: flex"]') || e.ctrlKey || e.metaKey) return; const action = toolKeyMap[e.key.toLowerCase()]; if (action) { e.preventDefault(); if (action === 'add_color') actions.addNewPaletteColor(); else actions.setActiveTool(action); } });
+        
+        ui.addSwatchBtn.addEventListener('click', () => actions.addNewPaletteColor());
+        ui.drawBtn.addEventListener('click', () => actions.setActiveTool(C.TOOLS.DRAW)); ui.fillBtn.addEventListener('click', () => actions.setActiveTool(C.TOOLS.FILL)); ui.eraserBtn.addEventListener('click', () => actions.setActiveTool(C.TOOLS.ERASER)); ui.pipetteBtn.addEventListener('click', () => actions.setActiveTool(C.TOOLS.PIPETTE));
+        ui.onionSkinBtn.addEventListener('click', () => actions.toggleOnionSkinMode());
+        ui.editPaletteBtn.addEventListener('click', () => { ui.paletteSwatchesDiv.classList.toggle('edit-mode'); ui.editPaletteBtn.innerHTML = ui.paletteSwatchesDiv.classList.contains('edit-mode') ? '✓' : '<svg><use href="#icon-edit"/></svg>'; ui.editPaletteBtn.classList.toggle('active', ui.paletteSwatchesDiv.classList.contains('edit-mode')); });
+
+        const getCoordsFromEvent = (e) => { const rect = ui.matrixDiv.getBoundingClientRect(); let clientX = e.clientX, clientY = e.clientY; if(e.touches && e.touches.length) { clientX = e.touches[0].clientX; clientY = e.touches[0].clientY; } const x = Math.floor((clientX - rect.left) / (rect.width / state.width)), y = Math.floor((clientY - rect.top) / (rect.height / state.height)); return { x: utils.clamp(x, 0, state.width - 1), y: utils.clamp(y, 0, state.height - 1) }; }
+        const handleInteractionStart = (e) => { state.mouseDown = true; const { x, y } = getCoordsFromEvent(e); switch(state.activeTool) { case C.TOOLS.DRAW: case C.TOOLS.ERASER: history.record(state); actions.setPixel(x, y); break; case C.TOOLS.FILL: actions.applyFill(x, y); break; case C.TOOLS.PIPETTE: actions.pickColor(x, y); break; } }
+        const handleInteractionMove = (e) => { if (!state.mouseDown) return; let { x, y } = getCoordsFromEvent(e); if(state.activeTool === C.TOOLS.DRAW || state.activeTool === C.TOOLS.ERASER) actions.setPixel(x, y); }
+        const handleInteractionEnd = () => { if (state.mouseDown) state.mouseDown = false; }
+        
+        ui.matrixDiv.addEventListener('mousedown', e => { e.preventDefault(); handleInteractionStart(e); }); ui.matrixDiv.addEventListener('mousemove', e => handleInteractionMove(e));
+        document.body.addEventListener("mouseup", handleInteractionEnd); document.body.addEventListener("mouseleave", handleInteractionEnd);
+        const throttledTouchMove = utils.throttle(handleInteractionMove, 30);
+        ui.matrixDiv.addEventListener('touchstart', e => { e.preventDefault(); handleInteractionStart(e); }, { passive: false }); ui.matrixDiv.addEventListener('touchmove', e => { e.preventDefault(); throttledTouchMove(e); }, { passive: false });
+        ui.matrixDiv.addEventListener('touchend', handleInteractionEnd); ui.matrixDiv.addEventListener('touchcancel', handleInteractionEnd);
+
+        ui.undoBtn.addEventListener('click', () => history.undo()); ui.redoBtn.addEventListener('click', () => history.redo());
+        document.getElementById("addFrameBtn").addEventListener("click", () => actions.addFrame()); document.getElementById('duplicateFrameBtn').addEventListener("click", () => actions.duplicateFrame());
+        document.getElementById('copyFrameBtn').addEventListener('click', () => actions.copyFrame()); ui.pasteFrameBtn.addEventListener('click', () => actions.pasteFrame());
+        document.getElementById("removeFrameBtn").addEventListener("click", () => actions.removeFrame()); document.getElementById("clearBtn").addEventListener("click", () => actions.clearFrame());
+        ['shiftLeft', 'shiftRight', 'shiftUp', 'shiftDown', 'flipHorizontal', 'flipVertical'].forEach(id => { document.getElementById(`${id}Btn`).addEventListener("click", () => actions.transformFrame(id)); });
+        
+        document.addEventListener('keydown', (e) => { if (document.activeElement.tagName === 'INPUT') return; if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); history.undo(); } if (e.key === 'y') { e.preventDefault(); history.redo(); } if (e.key === 'c') { e.preventDefault(); actions.copyFrame(); } if (e.key === 'v') { e.preventDefault(); actions.pasteFrame(); } } });
+        document.getElementById("exportProjectBtn").addEventListener("click", () => { history.markSaved(); const stateToSave = filterExportState(state); const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stateToSave, null, 2)); const dl = document.createElement('a'); dl.setAttribute("href", dataStr); dl.setAttribute("download", "led-matrix-project.json"); dl.click(); dl.remove(); });
+        document.getElementById("importProjectBtn").addEventListener("click", () => document.getElementById("importFileInput").click() );
+        
+        document.getElementById("importFileInput").addEventListener("change", e => { 
+            const file = e.target.files[0]; 
+            if (!file) return; 
+            const reader = new FileReader(); 
+            reader.onload = (event) => { 
+                try { 
+                    const data = JSON.parse(event.target.result); 
+                    if (!data.width || !data.height || !data.frames) { throw new Error("Invalid project file structure."); } 
+                    
+                    data.width = utils.clamp(parseInt(data.width) || 8, 1, 64);
+                    data.height = utils.clamp(parseInt(data.height) || 8, 1, 64);
+                    
+                    Object.assign(state, { ...state, ...data, activeTool: C.TOOLS.DRAW, isCodeDirty: true }); 
+                    state.currentFrameIndex = utils.clamp(state.currentFrameIndex || 0, 0, state.frames.length - 1); 
+                    history.undoStack = []; history.redoStack = []; history.record(state); history.markSaved(); 
+                    render(true); preview.restart(); 
+                    alert("Project successfully loaded!"); 
+                } catch(err) { alert(`Error loading project: ${err.message}`); } 
+            }; 
+            reader.readAsText(file); e.target.value = ''; 
+        });
+        
+        document.getElementById("generateCodeBtn").addEventListener("click", () => exporter.generateCode());
+        
+        document.getElementById("copyFirmwareBtn").addEventListener("click", () => {
+            const finalFirmwareCode = esp32ReceiverFirmwareTemplate
+                .replace(/__LED_PIN__/g, state.ledPin)
+                .replace(/__MASTER_BRIGHTNESS__/g, state.brightness)
+                .replace(/__COLOR_ORDER__/g, state.colorOrder);
+
+            navigator.clipboard.writeText(finalFirmwareCode).then(() => {
+                alert("ESP32 firmware code copied to clipboard!");
+            }).catch(err => {
+                console.error("Failed to copy firmware: ", err);
+                alert("Could not copy the code.");
+            });
+        });
+
+        document.getElementById("sendBluetoothBtn").addEventListener("click", () => bluetooth.sendAnimation());
+        bluetooth.cancelBtn.addEventListener('click', () => { bluetooth.cancelSend = true; });
+
+        const codeActionHandler = (action) => { const codeContent = exporter.exportCodeEl.textContent; if (!codeContent || exporter.exportCodeEl.classList.contains('placeholder') || state.isCodeDirty) { alert("Please generate the code first. If the button is orange, you have unsaved changes and need to generate again."); return; } if (action === 'copy') navigator.clipboard.writeText(codeContent).then(() => alert("Code copied!"), () => alert("Copy failed.")); else if (action === 'download') { const blob = new Blob([codeContent], { type: 'text/plain' }), url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'led_matrix_animation.ino'; a.click(); URL.revokeObjectURL(url); } };
+        document.getElementById("copyCodeBtn").addEventListener("click", () => codeActionHandler('copy')); document.getElementById('exportInoBtn').addEventListener("click", () => codeActionHandler('download'));
+        
+        const colorPickerUpdate = (e) => {
+            const r = parseInt(ui.sliderR.value); const g = parseInt(ui.sliderG.value); const b = parseInt(ui.sliderB.value);
+            if (e.target.type === 'range') { ui.updateColorPickerControls(r,g,b); }
+            else { ui.updateColorPickerControls(parseInt(ui.inputR.value), parseInt(ui.inputG.value), parseInt(ui.inputB.value)); }
+        };
+        ['input', 'change'].forEach(evt => { [ui.sliderR, ui.sliderG, ui.sliderB, ui.inputR, ui.inputG, ui.inputB].forEach(el => el.addEventListener(evt, colorPickerUpdate)); });
+        ui.hexInput.addEventListener('change', (e) => { const rgb = utils.hexToRgb('#' + e.target.value); if(rgb) ui.updateColorPickerControls(rgb.r, rgb.g, rgb.b); });
+        
+        const closeColorPicker = () => ui.colorPickerModal.style.display = 'none';
+        document.getElementById('color-picker-ok').addEventListener('click', () => {
+            const { index, originalColor } = ui.colorPickerState;
+            const newColor = utils.rgbToHex(parseInt(ui.inputR.value), parseInt(ui.inputG.value), parseInt(ui.inputB.value));
+            actions.updatePaletteColor(index, newColor, originalColor);
+            closeColorPicker();
+        });
+        document.getElementById('color-picker-cancel').addEventListener('click', () => {
+            const { index, isNew } = ui.colorPickerState;
+            if (isNew) actions.removePaletteColor(index);
+            closeColorPicker();
+        });
+
+        let tempMappingOnOpen = [];
+        document.getElementById("openMapBtn").onclick = () => { tempMappingOnOpen = [...state.mapping]; ui.rebuildMappingGrid(); document.getElementById("mapModal").style.display = "flex"; };
+        document.getElementById("cancelMapBtn").onclick = () => { state.mapping = tempMappingOnOpen; document.getElementById("mapModal").style.display = "none"; };
+        document.getElementById("applyMapBtn").onclick = () => { history.record(state); document.getElementById("mapModal").style.display = "none"; actions.onContentChanged(); };
+
+        preview.previewDiv.onclick = () => { state.previewRunning ? preview.stop() : preview.start() };
+    }
+
+    const savePreferences = () => {
+        try {
+            const prefs = {
+                ledPin: state.ledPin,
+                brightness: state.brightness,
+                defaultFPS: state.defaultFPS,
+                colorOrder: state.colorOrder,
+                rotation: state.rotation,
+                layoutPattern: state.layoutPattern,
+                useProgmem: state.useProgmem,
+                optimizeData: state.optimizeData
+            };
+            localStorage.setItem(C.LOCAL_STORAGE_KEY, JSON.stringify(prefs));
+        } catch (e) {
+            console.error("Error saving preferences to localStorage", e);
+        }
+    };
+
+    function init() {
+        // Safe LocalStorage loading (supports both full project and user preferences)
+        try {
+            const savedSettings = localStorage.getItem(C.LOCAL_STORAGE_KEY);
+            if (savedSettings) { 
+                const parsed = JSON.parse(savedSettings);
+                if (parsed.width && parsed.height && Array.isArray(parsed.frames)) {
+                    parsed.width = utils.clamp(parseInt(parsed.width) || 8, 1, 64);
+                    parsed.height = utils.clamp(parseInt(parsed.height) || 8, 1, 64);
+                    Object.assign(state, { ...state, ...parsed });
+                } else {
+                    const prefKeys = ['ledPin', 'brightness', 'defaultFPS', 'colorOrder', 'rotation', 'layoutPattern', 'useProgmem', 'optimizeData'];
+                    prefKeys.forEach(k => {
+                        if (parsed[k] !== undefined) state[k] = parsed[k];
+                    });
+                }
+            }
+        } catch (e) { 
+            console.error("Corrupted settings reset.", e); 
+            localStorage.removeItem(C.LOCAL_STORAGE_KEY);
+        }
+
+        ui.exportCode.textContent = "Click 'Generate' to create Arduino code.";
+        actions.initProject();
+        render(true);
+        preview.start();
+        setupEventListeners();
+        window.addEventListener('beforeunload', (e) => {
+            savePreferences();
+            if (history.isDirty) { e.preventDefault(); e.returnValue = ''; }
+        });
+        window.addEventListener('unload', savePreferences);
+        
+        // CHECK BLUETOOTH SUPPORT
+        if (!navigator.bluetooth) {
+            const btBtn = document.getElementById("sendBluetoothBtn");
+            if (btBtn) {
+                btBtn.disabled = true;
+                btBtn.innerHTML = "⚠️ BT Not Supported";
+                btBtn.title = "Web Bluetooth is not supported on this device/browser (e.g. iOS or Firefox). Please use Chrome on Android or Windows.";
+                btBtn.style.opacity = "0.6";
+                btBtn.style.cursor = "not-allowed";
+            }
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>
